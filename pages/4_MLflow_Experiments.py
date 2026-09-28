@@ -24,13 +24,29 @@ num_leaves = c3.number_input("Num leaves", min_value=7, max_value=127, value=31,
 
 if st.button("Run LightGBM Experiment", type="primary"):
     p = versions[versions.dataset_version == ver].iloc[0].processed_path
-    with st.spinner("Training LightGBM and logging experiment..."):
+    progress_bar = st.progress(0, text="0% • Preparing experiment")
+    stage_box = st.empty()
+
+    def update_progress(percent, message):
+        percent = max(0, min(100, int(percent)))
+        progress_bar.progress(percent, text=f"{percent}% • {message}")
+        stage_box.info(f"Current step: **{message}**")
+
+    try:
+        update_progress(5, "Loading dataset version")
+        snapshot = pd.read_parquet(p)
         r = run_manual_experiment(
-            pd.read_parquet(p), ver, name,
+            snapshot, ver, name,
+            progress_callback=update_progress,
             n_estimators=int(n_estimators), learning_rate=float(learning_rate), num_leaves=int(num_leaves),
         )
-    st.success(f"Experiment logged. MLflow run ID: {r['run_id']}")
-    st.json({"threshold": r["threshold"], "validation": r["val"], "test": r["test"]})
+        progress_bar.progress(100, text="100% • Experiment complete")
+        stage_box.success(f"Experiment logged. MLflow run ID: {r['run_id']}")
+        st.json({"threshold": r["threshold"], "validation": r["val"], "test": r["test"]})
+    except Exception as exc:
+        progress_bar.progress(100, text="Stopped • Experiment failed")
+        stage_box.error(f"Experiment failed: {exc}")
+        st.exception(exc)
 
 st.divider(); st.subheader("Recent MLflow Runs")
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)

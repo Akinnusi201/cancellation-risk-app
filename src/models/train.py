@@ -6,7 +6,7 @@ import mlflow
 import mlflow.sklearn
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 
 from src.config import (NUMERIC_FEATURES, CATEGORICAL_FEATURES, RANDOM_STATE, ARTIFACT_DIR,
@@ -30,7 +30,7 @@ def temporal_split(df, train_frac=.70, val_frac=.15):
 
 
 def preprocessor():
-    num = Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())])
+    num = Pipeline([("impute", SimpleImputer(strategy="median"))])
     cat = Pipeline([("impute", SimpleImputer(strategy="most_frequent")), ("ohe", OneHotEncoder(handle_unknown="ignore"))])
     return ColumnTransformer([("num", num, NUMERIC_FEATURES), ("cat", cat, CATEGORICAL_FEATURES)])
 
@@ -39,7 +39,7 @@ def lightgbm_model(**overrides):
     if LGBMClassifier is None:
         raise RuntimeError("LightGBM is not installed. Install dependencies from requirements.txt.")
     params = dict(
-        n_estimators=220,
+        n_estimators=150,
         learning_rate=0.05,
         num_leaves=31,
         max_depth=-1,
@@ -78,19 +78,30 @@ def _setup_mlflow():
     mlflow.set_experiment("cancellation-risk")
 
 
-def _fit_and_log(snapshot: pd.DataFrame, dataset_version: str, estimator, run_name: str, run_source: str):
+def _fit_and_log(snapshot: pd.DataFrame, dataset_version: str, estimator, run_name: str, run_source: str, progress_callback=None):
+    def progress(step, message):
+        if progress_callback:
+            progress_callback(step, message)
+
+    progress(74, "Preparing MLflow experiment")
     _setup_mlflow()
+    progress(76, "Creating temporal train / validation / test splits")
     train_df, val_df, test_df = temporal_split(snapshot)
+    progress(78, "Building model feature matrices")
     Xtr, ytr = get_model_frame(train_df); Xv, yv = get_model_frame(val_df); Xt, yt = get_model_frame(test_df)
     if min(ytr.nunique(), yv.nunique(), yt.nunique()) < 2:
         raise ValueError("Each temporal split must contain both classes. Add more data before training.")
 
     with mlflow.start_run(run_name=run_name) as run:
         pipe = Pipeline([("prep", preprocessor()), ("model", estimator)])
+        progress(80, "Training LightGBM")
         pipe.fit(Xtr, ytr)
+        progress(88, "LightGBM training complete")
+        progress(89, "Selecting the validation F1 threshold")
         pv = pipe.predict_proba(Xv)[:, 1]
         threshold, _ = best_f1_threshold(yv, pv)
         vm = metrics(yv, pv, threshold)
+        progress(91, "Evaluating the held-out test set")
         pt = pipe.predict_proba(Xt)[:, 1]
         tm = metrics(yt, pt, threshold)
 
@@ -104,18 +115,28 @@ def _fit_and_log(snapshot: pd.DataFrame, dataset_version: str, estimator, run_na
             "validation_rows": len(val_df),
             "test_rows": len(test_df),
         })
+        progress(93, "Logging parameters and metrics to MLflow")
         mlflow.log_params(params)
         mlflow.log_metrics({f"val_{k}": v for k, v in vm.items()} | {f"test_{k}": v for k, v in tm.items()})
 
         out = ARTIFACT_DIR / dataset_version / "lightgbm" / run.info.run_id[:8]
         out.mkdir(parents=True, exist_ok=True)
+        progress(95, "Generating evaluation artifacts")
         plots = save_evaluation_plots(yt, pt, out, "test")
         fi = native_feature_importance(pipe)
         fi_path = out / "feature_importance.csv"
         fi.to_csv(fi_path, index=False)
         for p in [*plots.values(), str(fi_path)]:
             mlflow.log_artifact(p)
-        mlflow.sklearn.log_model(pipe, "model")
+        # Explicitly use cloudpickle for compatibility with LightGBM inside an sklearn Pipeline.
+        # Newer MLflow releases default sklearn logging to skops, which can reject
+        # third-party estimator types as untrusted during serialization.
+        mlflow.sklearn.log_model(
+            pipe,
+            "model",
+            serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
+        )
+        progress(97, "Model and artifacts logged to MLflow")
 
     return {
         "model_name": "lightgbm", "run_id": run.info.run_id, "pipeline": pipe,
@@ -124,17 +145,20 @@ def _fit_and_log(snapshot: pd.DataFrame, dataset_version: str, estimator, run_na
     }
 
 
-def train_all(snapshot: pd.DataFrame, dataset_version: str, promote=True, run_source="automatic_batch"):
+def train_all(snapshot: pd.DataFrame, dataset_version: str, promote=True, run_source="automatic_batch", progress_callback=None, fast_mode=False):
     """Kept for backward compatibility; now trains exactly one LightGBM model."""
-    estimator = lightgbm_model()
+    estimator = lightgbm_model(n_estimators=80) if fast_mode else lightgbm_model()
     result = _fit_and_log(
         snapshot, dataset_version, estimator,
         run_name=f"{run_source}_{dataset_version}_lightgbm_{uuid.uuid4().hex[:6]}",
         run_source=run_source,
+        progress_callback=progress_callback,
     )
 
     model_version = None
     if promote:
+        if progress_callback:
+            progress_callback(98, "Registering and activating the new model version")
         model_uri = f"runs:/{result['run_id']}/model"
         mv = mlflow.register_model(model_uri, REGISTERED_MODEL_NAME)
         model_version = str(mv.version)
@@ -159,6 +183,9 @@ def train_all(snapshot: pd.DataFrame, dataset_version: str, promote=True, run_so
             {"dataset_version": dataset_version, "threshold": result["threshold"]},
         )
 
+    if progress_callback:
+        progress_callback(100, "Production model activated")
+
     comparison = pd.DataFrame([{
         "model": "LightGBM",
         "run_id": result["run_id"],
@@ -169,7 +196,7 @@ def train_all(snapshot: pd.DataFrame, dataset_version: str, promote=True, run_so
     return {"winner": result, "model_version": model_version, "comparison": comparison, "test_df": result["test_df"]}
 
 
-def run_manual_experiment(snapshot: pd.DataFrame, dataset_version: str, experiment_name="manual_lightgbm", **params):
+def run_manual_experiment(snapshot: pd.DataFrame, dataset_version: str, experiment_name="manual_lightgbm", progress_callback=None, **params):
     estimator = lightgbm_model(**params)
-    result = _fit_and_log(snapshot, dataset_version, estimator, experiment_name, "manual")
+    result = _fit_and_log(snapshot, dataset_version, estimator, experiment_name, "manual", progress_callback=progress_callback)
     return {"run_id": result["run_id"], "threshold": result["threshold"], "val": result["val"], "test": result["test"]}

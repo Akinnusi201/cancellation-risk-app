@@ -29,8 +29,10 @@ def save_raw(file_bytes, filename, batch_id):
     return path
 
 
-def build_cumulative_snapshot(new_orders, version):
+def build_cumulative_snapshot(new_orders, version, cumulative=True):
     new_orders = normalize_snapshot_schema(new_orders)
+    if not cumulative:
+        return normalize_snapshot_schema(new_orders.reset_index(drop=True))
     with connect() as con:
         prev = con.execute("SELECT processed_path FROM dataset_versions WHERE active = TRUE ORDER BY created_at DESC LIMIT 1").fetchone()
     if prev and Path(prev[0]).exists():

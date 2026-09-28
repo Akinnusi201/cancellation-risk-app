@@ -73,3 +73,17 @@ Streamlit Community Cloud does not guarantee persistence of files created at run
 - Outcome-derived columns such as `status`, `BI Status`, and `is_canceled` are blocked from model features.
 - Customer cancellation history only uses prior orders.
 - Identifier columns are normalized as strings before aggregation and Parquet persistence.
+
+
+## Fast demo vs full-data mode
+
+The Data Pipeline page now has two execution modes:
+
+- **Demo Sample** samples complete orders with a fixed random seed and trains an isolated LightGBM model with fewer trees. This is intended for a fast classroom demo.
+- **Full Dataset** uses the cumulative versioned dataset and performs the full retraining workflow.
+
+The pipeline displays **Step X of 14**, the operation currently running, a progress bar, and short explanations based on the original notebook (temporal splitting, customer cancellation history, LightGBM, F1 thresholding, ROC-AUC, PR-AUC, calibration, and feature importance).
+
+### MLflow serialization on Streamlit Cloud
+
+The LightGBM sklearn pipeline is logged with MLflow using explicit `cloudpickle` serialization. This avoids `skops` trust errors for third-party LightGBM estimator types on newer MLflow releases.

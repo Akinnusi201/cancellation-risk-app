@@ -55,8 +55,17 @@ def _update_batch(batch_id, *, raw_rows=0, valid_rows=0, quarantined_rows=0,
         )
 
 
-def ingest_batch(file_bytes: bytes, filename: str):
-    file_hash = sha256_bytes(file_bytes)
+def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_mode="full", sample_orders=5000):
+    def progress(step, message):
+        if progress_callback:
+            progress_callback(step, message)
+
+    progress(2, "Calculating file fingerprint")
+    # Include the processing mode in the deduplication key so the same source CSV
+    # can be used once in Demo Sample mode and once in Full Dataset mode.
+    mode_token = f"|mode={run_mode}|sample_orders={sample_orders if run_mode == 'demo' else 'all'}".encode()
+    file_hash = sha256_bytes(file_bytes + mode_token)
+    progress(5, "Checking for duplicate uploads")
     batch_id, existing = _reserve_batch(file_hash, filename)
     if existing:
         existing_batch, existing_version, existing_status = existing
@@ -67,14 +76,38 @@ def ingest_batch(file_bytes: bytes, filename: str):
             "batch_id": existing_batch,
         }
 
+    progress(8, "Reserving new batch")
     save_raw(file_bytes, filename, batch_id)
+    progress(12, "Saving raw batch")
     try:
         df = pd.read_csv(io.BytesIO(file_bytes), low_memory=False)
+        progress(15, "Reading CSV")
+
+        # Demo mode samples COMPLETE ORDERS, not arbitrary rows, so item-level
+        # baskets remain intact before order-level aggregation.
+        original_rows = len(df)
+        sampled_orders = None
+        if run_mode == "demo":
+            progress(18, "Sampling complete orders for fast demo")
+            order_col_for_sample = first_existing(df.columns, ORDER_ID_CANDIDATES)
+            if order_col_for_sample:
+                ids = df[order_col_for_sample].dropna().astype("string").drop_duplicates()
+                n = min(int(sample_orders), len(ids))
+                chosen = ids.sample(n=n, random_state=42) if n < len(ids) else ids
+                chosen_set = set(chosen.tolist())
+                df = df[df[order_col_for_sample].astype("string").isin(chosen_set)].copy()
+                sampled_orders = n
+            else:
+                df = df.sample(n=min(len(df), int(sample_orders)), random_state=42).copy()
+                sampled_orders = None
+            progress(20, "Demo sample ready")
     except Exception as e:
         _update_batch(batch_id, status="FAILED", notes=str(e))
         raise
 
+    progress(22, "Validating schema and data quality")
     valid, quarantine, checks, fatal = validate_raw(df)
+    progress(30, "Validation complete")
     if fatal:
         _update_batch(
             batch_id, raw_rows=len(df), valid_rows=0, quarantined_rows=len(df),
@@ -85,6 +118,7 @@ def ingest_batch(file_bytes: bytes, filename: str):
                 con.execute("INSERT INTO validation_results VALUES (?, ?, ?, ?, ?, ?)", [batch_id, a, b, c, d, now()])
         return {"status": "failed", "batch_id": batch_id, "checks": checks, "message": "Required schema validation failed"}
 
+    progress(34, "Checking order consistency")
     order_col = first_existing(valid.columns, ORDER_ID_CANDIDATES)
     if order_col:
         inconsistent_ids = valid.groupby(order_col, dropna=False)["status"].nunique()
@@ -95,17 +129,23 @@ def ingest_batch(file_bytes: bytes, filename: str):
             valid = valid.loc[~mask].copy()
         checks.append(("order_status_consistency", "PASS" if not inconsistent_ids else "WARN", len(inconsistent_ids), "Orders with multiple final statuses quarantined"))
 
-        with connect() as con:
-            prev = con.execute("SELECT processed_path FROM dataset_versions WHERE active = TRUE ORDER BY created_at DESC LIMIT 1").fetchone()
-        existing_ids = set()
-        if prev and Path(prev[0]).exists():
-            existing_ids = set(pd.read_parquet(prev[0], columns=["order_id"])["order_id"].astype("string").dropna())
-        overlap = set(valid[order_col].astype("string").dropna()) & existing_ids
-        if overlap:
-            mask = valid[order_col].astype("string").isin(overlap)
-            quarantine = _append_quarantine(quarantine, valid.loc[mask], "existing_order_id;")
-            valid = valid.loc[~mask].copy()
-        checks.append(("existing_order_duplicates", "PASS" if not overlap else "WARN", len(overlap), "Previously ingested order IDs excluded and quarantined"))
+        overlap = set()
+        if run_mode == "full":
+            with connect() as con:
+                prev = con.execute("SELECT processed_path FROM dataset_versions WHERE active = TRUE ORDER BY created_at DESC LIMIT 1").fetchone()
+            progress(40, "Checking for previously ingested orders")
+            existing_ids = set()
+            if prev and Path(prev[0]).exists():
+                existing_ids = set(pd.read_parquet(prev[0], columns=["order_id"])["order_id"].astype("string").dropna())
+            overlap = set(valid[order_col].astype("string").dropna()) & existing_ids
+            if overlap:
+                mask = valid[order_col].astype("string").isin(overlap)
+                quarantine = _append_quarantine(quarantine, valid.loc[mask], "existing_order_id;")
+                valid = valid.loc[~mask].copy()
+            checks.append(("existing_order_duplicates", "PASS" if not overlap else "WARN", len(overlap), "Previously ingested order IDs excluded and quarantined"))
+        else:
+            progress(40, "Demo mode uses an isolated sample")
+            checks.append(("existing_order_duplicates", "SKIP", 0, "Skipped in Demo Sample mode so the sample stays isolated and fast"))
 
     if valid.empty:
         _update_batch(
@@ -121,10 +161,16 @@ def ingest_batch(file_bytes: bytes, filename: str):
             "dataset_version": None,
         }
 
+    progress(48, "Aggregating item rows to order level")
     orders = aggregate_to_orders(valid)
+    progress(55, "Order aggregation complete")
+    progress(58, "Creating next dataset version")
     version = next_version()
-    snapshot = build_cumulative_snapshot(orders, version)
+    progress(62, "Building cumulative training snapshot")
+    snapshot = build_cumulative_snapshot(orders, version, cumulative=(run_mode == "full"))
+    progress(68, "Saving cleaned, quarantined, and validation artifacts")
     processed_path, quarantine_path, report_path = persist_version(batch_id, version, snapshot, quarantine, checks)
+    progress(72, "Dataset version stored")
 
     _update_batch(
         batch_id, raw_rows=len(df), valid_rows=len(valid), quarantined_rows=len(quarantine),
@@ -136,7 +182,7 @@ def ingest_batch(file_bytes: bytes, filename: str):
     log_event(f"event_{uuid.uuid4().hex[:10]}", "DATA_INGESTION", "SUCCESS", f"Created dataset {version}", {"batch_id": batch_id})
     return {
         "status": "success", "batch_id": batch_id, "dataset_version": version,
-        "raw_rows": len(df), "valid_rows": len(valid), "quarantined_rows": len(quarantine),
+        "raw_rows": len(df), "source_rows": original_rows, "sampled_orders": sampled_orders, "run_mode": run_mode, "valid_rows": len(valid), "quarantined_rows": len(quarantine),
         "orders_in_batch": len(orders), "snapshot_orders": len(snapshot), "checks": checks,
         "processed_path": str(processed_path), "quarantine_path": str(quarantine_path), "report_path": str(report_path),
     }
