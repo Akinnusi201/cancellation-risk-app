@@ -1,0 +1,9 @@
+streamlit>=1.39
+pandas>=2.1
+numpy>=1.26
+scikit-learn>=1.4
+lightgbm>=4.3
+mlflow>=2.17
+duckdb>=1.1
+pyarrow>=15
+matplotlib>=3.8

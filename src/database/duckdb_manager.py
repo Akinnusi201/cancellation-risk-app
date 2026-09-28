@@ -1,0 +1,93 @@
+import json
+from datetime import datetime, timezone
+import duckdb
+import pandas as pd
+from src.config import DB_PATH
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS data_batches (
+    batch_id VARCHAR PRIMARY KEY,
+    filename VARCHAR,
+    file_hash VARCHAR UNIQUE,
+    uploaded_at TIMESTAMP,
+    raw_rows BIGINT,
+    valid_rows BIGINT,
+    quarantined_rows BIGINT,
+    status VARCHAR,
+    dataset_version VARCHAR,
+    notes VARCHAR
+);
+CREATE TABLE IF NOT EXISTS dataset_versions (
+    dataset_version VARCHAR PRIMARY KEY,
+    created_at TIMESTAMP,
+    source_batch_id VARCHAR,
+    row_count BIGINT,
+    order_count BIGINT,
+    processed_path VARCHAR,
+    quarantine_path VARCHAR,
+    report_path VARCHAR,
+    active BOOLEAN DEFAULT FALSE
+);
+CREATE TABLE IF NOT EXISTS validation_results (
+    batch_id VARCHAR,
+    check_name VARCHAR,
+    status VARCHAR,
+    affected_rows BIGINT,
+    details VARCHAR,
+    checked_at TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS predictions (
+    prediction_id VARCHAR PRIMARY KEY,
+    order_id VARCHAR,
+    predicted_at TIMESTAMP,
+    model_name VARCHAR,
+    model_version VARCHAR,
+    dataset_version VARCHAR,
+    probability DOUBLE,
+    threshold DOUBLE,
+    recommendation VARCHAR,
+    actual_outcome VARCHAR
+);
+CREATE TABLE IF NOT EXISTS manager_decisions (
+    decision_id VARCHAR PRIMARY KEY,
+    prediction_id VARCHAR,
+    order_id VARCHAR,
+    decided_at TIMESTAMP,
+    manager_decision VARCHAR,
+    recommendation VARCHAR,
+    probability DOUBLE,
+    threshold DOUBLE,
+    actual_outcome VARCHAR,
+    model_name VARCHAR,
+    model_version VARCHAR
+);
+CREATE TABLE IF NOT EXISTS system_events (
+    event_id VARCHAR PRIMARY KEY,
+    created_at TIMESTAMP,
+    event_type VARCHAR,
+    status VARCHAR,
+    message VARCHAR,
+    metadata_json VARCHAR
+);
+"""
+
+def connect():
+    con = duckdb.connect(str(DB_PATH))
+    con.execute(SCHEMA_SQL)
+    return con
+
+def now():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+def log_event(event_id, event_type, status, message, metadata=None):
+    with connect() as con:
+        con.execute("INSERT OR REPLACE INTO system_events VALUES (?, ?, ?, ?, ?, ?)",
+                    [event_id, now(), event_type, status, message, json.dumps(metadata or {})])
+
+def dataframe(query, params=None):
+    with connect() as con:
+        return con.execute(query, params or []).df()
+
+def table_exists(name):
+    with connect() as con:
+        return con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [name]).fetchone()[0] > 0
