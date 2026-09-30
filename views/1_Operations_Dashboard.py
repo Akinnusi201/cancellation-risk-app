@@ -4,10 +4,14 @@ from src.auth import require_role
 from src.business import load_policy
 from src.database.duckdb_manager import dataframe
 from src.models.registry import active_metadata
+from src.ui.common import currency_caption
+from src.currency import format_usd
 
 require_role("manager")
 st.title("📊 Operations Dashboard")
 st.caption("Production scoring is ready at login. Data preparation and model training are isolated from day-to-day operations.")
+fx = currency_caption()
+fx_rate = float(fx["rate"])
 
 meta = active_metadata()
 if not meta:
@@ -26,14 +30,14 @@ st.caption(f"Production dataset: **{meta.get('dataset_version', 'unknown')}**. T
 policy = load_policy()
 st.subheader("Business Rules Used for Recommendations")
 a, b, c, d = st.columns(4)
-a.metric("Loss from a late cancellation", f"Rs. {policy['avoidable_fulfillment_cost']:,.0f}")
+a.metric("Loss from a late cancellation", format_usd(policy["avoidable_fulfillment_cost"], fx_rate))
 b.metric("Loss prevented by verification", f"{policy['intervention_effectiveness']:.0%}")
-c.metric("Cost to verify an order", f"Rs. {policy['intervention_cost']:,.0f}")
-d.metric("Cost of an unnecessary verification", f"Rs. {policy['false_positive_friction_cost']:,.0f}")
+c.metric("Cost to verify an order", format_usd(policy["intervention_cost"], fx_rate))
+d.metric("Cost of an unnecessary verification", format_usd(policy["false_positive_friction_cost"], fx_rate))
 prevented = policy['avoidable_fulfillment_cost'] * policy['intervention_effectiveness']
 st.info(
     f"Simple rule: verify an order only when the expected money saved is greater than the expected cost of checking it. "
-    f"Under the current assumptions, a successful verification can prevent about Rs. {prevented:,.0f} of a cancellation-related loss."
+    f"Under the current assumptions, a successful verification can prevent about {format_usd(prevented, fx_rate)} of a cancellation-related loss."
 )
 
 st.subheader("Recent Decisions")
@@ -48,10 +52,12 @@ if len(hist):
         "probability": "Cancellation risk",
         "recommendation": "System recommendation",
         "manager_decision": "Manager decision",
-        "net_expected_savings": "Estimated net value (Rs.)",
+        "net_expected_savings": "Estimated net value ($)",
     })
     if "Cancellation risk" in hist.columns:
         hist["Cancellation risk"] = hist["Cancellation risk"].map(lambda x: f"{x:.1%}" if x is not None else "")
+    if "Estimated net value ($)" in hist.columns:
+        hist["Estimated net value ($)"] = hist["Estimated net value ($)"].map(lambda x: f"{'-' if float(x) * fx_rate < 0 else ''}${abs(float(x) * fx_rate):,.2f}" if x is not None else "")
     st.dataframe(hist, use_container_width=True, hide_index=True)
 else:
     st.caption("No manager decisions have been recorded yet. Open Score Order to begin.")

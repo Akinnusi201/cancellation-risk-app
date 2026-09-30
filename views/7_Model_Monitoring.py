@@ -21,13 +21,16 @@ from src.monitoring.metrics import (
     population_stability_index,
     runtime_prediction_summary,
 )
-from src.ui.common import FEATURE_LABELS, business_policy_controls, load_reference
+from src.ui.common import FEATURE_LABELS, business_policy_controls, currency_caption, load_reference
+from src.currency import format_usd
 
 require_role("developer")
 st.title("📈 Model Monitoring")
 st.caption(
     "Monitor production behavior, inference latency, pipeline reliability, drift, technical performance, and estimated business value."
 )
+fx = currency_caption()
+fx_rate = float(fx["rate"])
 
 meta = active_metadata()
 if not meta:
@@ -132,7 +135,7 @@ with runtime_tab:
             e.metric("Mean Model Latency", f"{runtime['latency_mean_ms']:.1f} ms" if runtime['latency_mean_ms'] is not None else "n/a")
             f.metric("P95 Model Latency", f"{runtime['latency_p95_ms']:.1f} ms" if runtime['latency_p95_ms'] is not None else "n/a")
             g.metric("Max Model Latency", f"{runtime['latency_max_ms']:.1f} ms" if runtime['latency_max_ms'] is not None else "n/a")
-            h.metric("Estimated Net Savings", f"Rs. {runtime['expected_net_savings_total']:,.0f}")
+            h.metric("Estimated Net Savings", format_usd(runtime["expected_net_savings_total"], fx_rate))
             st.caption("Latency measures the core production model probability call. Risk explanations are calculated separately and do not inflate this value.")
 
             trend = runtime_predictions.sort_values("predicted_at").set_index("predicted_at")[["probability"]]
@@ -225,12 +228,12 @@ with business_tab:
         d.metric("Unnecessary Verifications", f"{impact['false_interventions']:,}", f"{impact['false_intervention_rate']:.1%} of verifications")
 
         e, f, g, h = st.columns(4)
-        e.metric("Estimated Cost Prevented", f"Rs. {impact['estimated_avoided_cost']:,.0f}")
-        f.metric("Verification Cost", f"Rs. {impact['intervention_cost_total']:,.0f}")
-        g.metric("Extra Cost of Unnecessary Checks", f"Rs. {impact['false_intervention_cost_total']:,.0f}")
-        h.metric("Net Savings / 1,000 Orders", f"Rs. {impact['net_savings_per_1000_orders']:,.0f}")
+        e.metric("Estimated Cost Prevented", format_usd(impact["estimated_avoided_cost"], fx_rate))
+        f.metric("Verification Cost", format_usd(impact["intervention_cost_total"], fx_rate))
+        g.metric("Extra Cost of Unnecessary Checks", format_usd(impact["false_intervention_cost_total"], fx_rate))
+        h.metric("Net Savings / 1,000 Orders", format_usd(impact["net_savings_per_1000_orders"], fx_rate))
 
-        st.metric("Estimated Net Savings on Historical Test Orders", f"Rs. {impact['net_savings']:,.0f}")
+        st.metric("Estimated Net Savings on Historical Test Orders", format_usd(impact["net_savings"], fx_rate))
         st.caption(
             "These are estimated, not observed, savings. The source data does not include the retailer's real warehouse, verification, or customer-delay costs, so the values above depend on the business assumptions you choose."
         )
@@ -268,13 +271,13 @@ with business_tab:
             result = evaluate_business_policy(holdout["is_canceled"], holdout["probability"], scenario_policy)
             rows.append({
                 "Scenario": name,
-                "Loss per late cancellation": f"Rs. {scenario_policy['avoidable_fulfillment_cost']:,.0f}",
+                "Loss per late cancellation": format_usd(scenario_policy["avoidable_fulfillment_cost"], fx_rate),
                 "Loss prevented by verification": f"{scenario_policy['intervention_effectiveness']:.0%}",
-                "Cost per verification": f"Rs. {scenario_policy['intervention_cost']:,.0f}",
-                "Extra cost if unnecessary": f"Rs. {scenario_policy['false_positive_friction_cost']:,.0f}",
+                "Cost per verification": format_usd(scenario_policy["intervention_cost"], fx_rate),
+                "Extra cost if unnecessary": format_usd(scenario_policy["false_positive_friction_cost"], fx_rate),
                 "Orders verified": f"{result['intervention_rate']:.1%}",
                 "Cancellations reached": f"{result['cancellation_capture_rate']:.1%}",
-                "Net savings / 1,000 orders": f"Rs. {result['net_savings_per_1000_orders']:,.0f}",
+                "Net savings / 1,000 orders": format_usd(result["net_savings_per_1000_orders"], fx_rate),
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 

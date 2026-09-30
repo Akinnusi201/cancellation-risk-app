@@ -14,6 +14,8 @@ business_text = (ROOT / "src/business.py").read_text()
 score_text = (ROOT / "views/2_Score_Order.py").read_text()
 monitor_text = (ROOT / "views/7_Model_Monitoring.py").read_text()
 monitor_metrics_text = (ROOT / "src/monitoring/metrics.py").read_text()
+currency_text = (ROOT / "src/currency.py").read_text() if (ROOT / "src/currency.py").exists() else ""
+ui_common_text = (ROOT / "src/ui/common.py").read_text()
 mlflow_view_text = (ROOT / "views/8_MLflow_Experiments.py").read_text()
 train_text = (ROOT / "src/models/train.py").read_text()
 workflows = list((ROOT / ".github/workflows").glob("*.yml")) + list((ROOT / ".github/workflows").glob("*.yaml"))
@@ -34,6 +36,8 @@ check("Balanced live simulation", (ROOT / "artifacts/demo_orders.csv.gz").exists
 check("Production-only drift population", "PRODUCTION_SCORING_MODES" in monitor_metrics_text and "split_monitoring_population" in monitor_metrics_text, "simulation/evaluation traffic excluded from drift")
 check("Minimum drift sample guard", "MIN_MONITORING_OBSERVATIONS = 100" in monitor_metrics_text and "INSUFFICIENT RUNTIME DATA" in monitor_text, "no drift label before 100 eligible production scores")
 check("Batch prediction telemetry", '"batch"' in predict_text and "executemany" in predict_text, "batch predictions are persisted for production monitoring")
+check("Live PKR to USD conversion", "api.frankfurter.dev" in currency_text and "providers/sbp" in currency_text, "src/currency.py")
+check("USD display with PKR model compatibility", "usd_to_pkr" in score_text and "get_currency_context" in ui_common_text, "operations UI uses USD while inference remains in PKR")
 
 failed = False
 for name, ok, detail in checks:

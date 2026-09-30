@@ -95,3 +95,9 @@
 - Candidate promotion now carries both live and historical simulation artifacts forward.
 - Added packaged simulation integrity tests and callback-isolation regression coverage.
 - Added a visible GitHub Actions recovery template and clearer repair instructions when `.github` is not committed.
+
+## v3.7 - Live USD display
+- Added live PKR→USD exchange-rate lookup using the State Bank of Pakistan feed through Frankfurter, with blended-rate and packaged fallbacks.
+- Converted Operations and Business Impact monetary displays to U.S. dollars.
+- Manual and batch scoring now accept USD monetary inputs and convert them back to PKR internally because the production model was trained on PKR-denominated historical data.
+- Added hourly FX caching, source/date disclosure, USD batch exports, and currency regression tests.

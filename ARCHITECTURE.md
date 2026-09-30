@@ -72,3 +72,6 @@ The packaged temporal holdout includes production probabilities and labels. This
 ## DevOps
 
 GitHub Actions runs tests and a packaged-inference smoke test on each push/pull request, then performs a Docker build. The Docker image uses Python 3.12, exposes Streamlit on port 8501, and includes a health check. Streamlit Community Cloud remains the classroom deployment target.
+
+## Currency presentation layer
+Production inference preserves the original Pakistan dataset's PKR-denominated features. A separate presentation-layer FX adapter retrieves the latest PKR→USD rate (State Bank of Pakistan via Frankfurter), caches it for one hour, and converts user-facing amounts to USD. Manual and batch USD inputs are converted back to PKR before feature preparation. This keeps the model feature contract stable while making the operational and economic UI easier to interpret for a U.S.-based audience.

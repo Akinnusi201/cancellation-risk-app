@@ -189,3 +189,6 @@ git add .github/workflows/ci.yml
 git commit -m "Add GitHub Actions CI"
 git push
 ```
+
+### Currency handling
+The Pakistan source data and trained model remain in PKR internally. The Streamlit operations and business-value interfaces display U.S. dollars using a live PKR→USD rate fetched from the State Bank of Pakistan feed through the Frankfurter API. The rate is cached for up to one hour to avoid slowing normal Streamlit reruns. If the live endpoint is unavailable, the app falls back to a packaged rate and clearly marks the fallback in the UI. Manual and batch USD amounts are converted back to PKR before model inference so the model receives features in the same units used during training.

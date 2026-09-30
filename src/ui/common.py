@@ -5,6 +5,7 @@ import streamlit as st
 
 from src.business import load_policy
 from src.config import ARTIFACT_DIR
+from src.currency import fetch_pkr_to_usd_rate, format_usd, pkr_to_usd, rate_summary, usd_to_pkr
 
 REFERENCE_PATH = ARTIFACT_DIR / "reference_orders.csv.gz"
 DEMO_PATH = ARTIFACT_DIR / "demo_orders.csv.gz"
@@ -24,6 +25,21 @@ FEATURE_LABELS = {
     "day_of_week": "Day of week",
     "has_discount": "Discount presence",
 }
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_currency_context():
+    """Fetch and cache the latest PKR->USD rate for one hour."""
+    return fetch_pkr_to_usd_rate()
+
+
+def currency_caption():
+    fx = get_currency_context()
+    if fx.get("is_live"):
+        st.caption(rate_summary(fx) + ". Refreshed automatically up to once per hour. Model features remain in PKR internally; only user-facing money is shown in USD.")
+    else:
+        st.warning(rate_summary(fx) + ". Live FX lookup is unavailable, so the packaged fallback rate is being used.")
+    return fx
 
 
 @st.cache_data(show_spinner=False)
@@ -55,23 +71,28 @@ def load_historical_demo_orders():
 
 
 def business_policy_controls(key_prefix="policy"):
-    """Render business assumptions in plain operational language.
+    """Render business assumptions in USD while preserving PKR internally.
 
-    Internal policy keys remain unchanged for database/model compatibility, while
-    the UI describes each quantity in terms an operations manager can interpret.
+    The historical model and existing audit tables use PKR. User-entered USD
+    assumptions are converted back to PKR before the economic rule is evaluated,
+    so the decision math remains unit-consistent and backward compatible.
     """
     defaults = load_policy()
+    fx = get_currency_context()
+    rate = float(fx["rate"])
+
     with st.expander("Business assumptions for verification", expanded=False):
         st.caption(
             "These assumptions do not change the model's cancellation risk. They only decide whether verifying an order is expected to save money."
         )
+        st.caption(rate_summary(fx))
         c1, c2 = st.columns(2)
-        avoidable = c1.number_input(
-            "Loss if a canceled order reaches fulfillment (Rs.)",
+        avoidable_usd = c1.number_input(
+            "Loss if a canceled order reaches fulfillment ($)",
             min_value=0.0,
-            value=float(defaults["avoidable_fulfillment_cost"]),
-            step=100.0,
-            key=f"{key_prefix}_avoidable",
+            value=round(float(pkr_to_usd(defaults["avoidable_fulfillment_cost"], rate)), 2),
+            step=0.50,
+            key=f"{key_prefix}_avoidable_usd",
             help="Approximate picking, packing, payment, service, or other cost that could be avoided if a cancellation is caught before fulfillment.",
         )
         prevention_pct = c2.slider(
@@ -81,35 +102,36 @@ def business_policy_controls(key_prefix="policy"):
             value=int(round(float(defaults["intervention_effectiveness"]) * 100)),
             step=5,
             key=f"{key_prefix}_effectiveness_pct",
-            help="The share of the cancellation-related loss that a verification step is assumed to prevent. Example: 55% means a Rs. 2,000 loss is reduced by about Rs. 1,100 when verification works.",
+            help="The share of the cancellation-related loss that a verification step is assumed to prevent.",
         )
         c3, c4 = st.columns(2)
-        intervention = c3.number_input(
-            "Cost to verify one order (Rs.)",
+        intervention_usd = c3.number_input(
+            "Cost to verify one order ($)",
             min_value=0.0,
-            value=float(defaults["intervention_cost"]),
-            step=25.0,
-            key=f"{key_prefix}_intervention",
+            value=round(float(pkr_to_usd(defaults["intervention_cost"], rate)), 2),
+            step=0.25,
+            key=f"{key_prefix}_intervention_usd",
             help="Direct operational cost of the verification step, such as a message, payment check, or manual review.",
         )
-        unnecessary = c4.number_input(
-            "Extra cost if a good order is verified (Rs.)",
+        unnecessary_usd = c4.number_input(
+            "Extra cost if a good order is verified ($)",
             min_value=0.0,
-            value=float(defaults["false_positive_friction_cost"]),
-            step=25.0,
-            key=f"{key_prefix}_unnecessary",
+            value=round(float(pkr_to_usd(defaults["false_positive_friction_cost"], rate)), 2),
+            step=0.25,
+            key=f"{key_prefix}_unnecessary_usd",
             help="Estimated cost of unnecessary delay, customer contact, or service effort when an order would have completed normally. Set this to 0 if you do not want to model that cost.",
         )
 
-        prevented_if_canceled = avoidable * (prevention_pct / 100.0)
+        prevented_if_canceled = avoidable_usd * (prevention_pct / 100.0)
         st.info(
-            f"Plain-English assumption: if the order would cancel, verification can prevent about **Rs. {prevented_if_canceled:,.0f}** of loss. "
-            f"Every verification costs **Rs. {intervention:,.0f}**, and an unnecessary verification adds **Rs. {unnecessary:,.0f}**."
+            f"Plain-English assumption: if the order would cancel, verification can prevent about **${prevented_if_canceled:,.2f}** of loss. "
+            f"Every verification costs **${intervention_usd:,.2f}**, and an unnecessary verification adds **${unnecessary_usd:,.2f}**."
         )
 
     return {
-        "avoidable_fulfillment_cost": avoidable,
+        "avoidable_fulfillment_cost": float(usd_to_pkr(avoidable_usd, rate)),
         "intervention_effectiveness": prevention_pct / 100.0,
-        "intervention_cost": intervention,
-        "false_positive_friction_cost": unnecessary,
+        "intervention_cost": float(usd_to_pkr(intervention_usd, rate)),
+        "false_positive_friction_cost": float(usd_to_pkr(unnecessary_usd, rate)),
     }
+

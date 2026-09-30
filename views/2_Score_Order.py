@@ -19,6 +19,8 @@ FEATURE_LABELS = ui_common.FEATURE_LABELS
 business_policy_controls = ui_common.business_policy_controls
 load_demo_orders = ui_common.load_demo_orders
 load_reference = ui_common.load_reference
+get_currency_context = ui_common.get_currency_context
+currency_caption = ui_common.currency_caption
 
 
 def load_historical_demo_orders():
@@ -39,6 +41,8 @@ def load_historical_demo_orders():
 require_role("manager")
 st.title("🛒 Score Order")
 st.caption("Use the packaged production model immediately. No DataOps or training step is required.")
+fx = currency_caption()
+fx_rate = float(fx["rate"])
 
 meta = active_metadata()
 reference = load_reference()
@@ -68,8 +72,8 @@ def show_score(sc, row):
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Cancellation Risk", f"{sc['probability']:.1%}")
     c2.metric("Risk Level", sc["risk_level"])
-    c3.metric("Expected Money Saved", f"Rs. {sc['expected_avoidable_cost']:,.0f}")
-    c4.metric("Expected Net Savings", f"Rs. {sc['net_expected_savings']:,.0f}")
+    c3.metric("Expected Money Saved", ui_common.format_usd(sc["expected_avoidable_cost"], fx_rate))
+    c4.metric("Expected Net Savings", ui_common.format_usd(sc["net_expected_savings"], fx_rate))
 
     if verify:
         st.warning(f"Recommended action: **{action}**")
@@ -81,7 +85,7 @@ def show_score(sc, row):
     unnecessary_cost = float(policy_used.get("false_positive_friction_cost", 0.0))
     st.caption(
         f"Why: the app compares the expected cost prevented with the expected cost of verification. "
-        f"A verification costs Rs. {verify_cost:,.0f}; if the order would have completed normally, the model also allows Rs. {unnecessary_cost:,.0f} for unnecessary delay/service effort."
+        f"A verification costs {ui_common.format_usd(verify_cost, fx_rate)}; if the order would have completed normally, the model also allows {ui_common.format_usd(unnecessary_cost, fx_rate)} for unnecessary delay/service effort."
     )
 
     latency = sc.get("latency_ms")
@@ -136,10 +140,10 @@ with tabs[0]:
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Order ID", str(row.iloc[0]["order_id"]))
-        c2.metric("Order Value", f"Rs. {row.iloc[0]['grand_total']:,.0f}")
+        c2.metric("Order Value", ui_common.format_usd(row.iloc[0]["grand_total"], fx_rate))
         c3.metric("Quantity", f"{row.iloc[0]['qty_ordered']:,.0f}")
         c4.metric("Payment", str(row.iloc[0]["payment_method"]))
-        st.caption(f"Category: {row.iloc[0]['category_name_1']} • Discount: Rs. {row.iloc[0]['discount_amount']:,.0f} • Prior cancellation rate: {row.iloc[0]['customer_cancel_rate']:.1%}")
+        st.caption(f"Category: {row.iloc[0]['category_name_1']} • Discount: {ui_common.format_usd(row.iloc[0]['discount_amount'], fx_rate)} • Prior cancellation rate: {row.iloc[0]['customer_cancel_rate']:.1%}")
         show_score(sc, row)
 
         b1, b2 = st.columns(2)
@@ -173,11 +177,12 @@ with tabs[1]:
     with st.form("manual_order"):
         a, b, c = st.columns(3)
         order_id = a.text_input("Order ID", value=f"manual_{datetime.now().strftime('%H%M%S')}")
-        price = b.number_input("Average item price (Rs.)", min_value=0.0, value=1500.0, step=100.0)
+        default_order_usd = round(float(ui_common.pkr_to_usd(1500.0, fx_rate)), 2)
+        price_usd = b.number_input("Average item price ($)", min_value=0.0, value=default_order_usd, step=0.50)
         qty = c.number_input("Quantity", min_value=1.0, value=1.0, step=1.0)
         d, e, f = st.columns(3)
-        grand_total = d.number_input("Grand total (Rs.)", min_value=0.0, value=1500.0, step=100.0)
-        discount = e.number_input("Discount amount (Rs.)", min_value=0.0, value=0.0, step=50.0)
+        grand_total_usd = d.number_input("Grand total ($)", min_value=0.0, value=default_order_usd, step=0.50)
+        discount_usd = e.number_input("Discount amount ($)", min_value=0.0, value=0.0, step=0.25)
         prior = f.slider("Customer prior cancellation rate", 0.0, 1.0, 0.0, 0.05)
         g, h = st.columns(2)
         payment = g.selectbox("Payment method", payments)
@@ -187,10 +192,10 @@ with tabs[1]:
         manual = prepare_order_features(pd.DataFrame([{
             "order_id": order_id,
             "created_at": datetime.now(),
-            "price": price,
+            "price": float(ui_common.usd_to_pkr(price_usd, fx_rate)),
             "qty_ordered": qty,
-            "grand_total": grand_total,
-            "discount_amount": discount,
+            "grand_total": float(ui_common.usd_to_pkr(grand_total_usd, fx_rate)),
+            "discount_amount": float(ui_common.usd_to_pkr(discount_usd, fx_rate)),
             "payment_method": payment,
             "category_name_1": category,
             "customer_cancel_rate": prior,
@@ -200,17 +205,22 @@ with tabs[1]:
 
 with tabs[2]:
     st.subheader("Batch scoring")
-    st.caption("Upload one row per order. Outcome/status fields are not required and are ignored for inference.")
+    st.caption("Upload one row per order. Outcome/status fields are not required and are ignored for inference. Dollar inputs are converted to PKR internally before model scoring.")
     template = pd.DataFrame([{
-        "order_id": "NEW-1001", "created_at": "2026-09-29 14:30:00", "price": 1500,
-        "qty_ordered": 1, "grand_total": 1500, "discount_amount": 0, "payment_method": "cod",
+        "order_id": "NEW-1001", "created_at": "2026-09-29 14:30:00", "price": round(float(ui_common.pkr_to_usd(1500, fx_rate)), 2),
+        "qty_ordered": 1, "grand_total": round(float(ui_common.pkr_to_usd(1500, fx_rate)), 2), "discount_amount": 0, "payment_method": "cod",
         "category_name_1": "Men's Fashion", "customer_cancel_rate": 0.10,
     }])
-    st.download_button("Download batch template", template.to_csv(index=False).encode(), "prediction_batch_template.csv", "text/csv")
+    st.download_button("Download USD batch template", template.to_csv(index=False).encode(), "prediction_batch_template_usd.csv", "text/csv")
+    batch_currency = st.selectbox("Currency used by price, grand_total, and discount_amount", ["USD", "PKR"], index=0, help="Choose USD for the new template. PKR keeps compatibility with older source-format files.")
     batch_file = st.file_uploader("Upload order-level CSV", type=["csv"], key="prediction_batch")
     if batch_file is not None:
         try:
             batch = pd.read_csv(batch_file)
+            if batch_currency == "USD":
+                for money_col in ["price", "grand_total", "discount_amount"]:
+                    if money_col in batch.columns:
+                        batch[money_col] = pd.to_numeric(batch[money_col], errors="coerce") / fx_rate
             ready = prepare_order_features(batch)
             scored = score_batch(ready, policy=policy)
             show_cols = [
@@ -221,20 +231,35 @@ with tabs[2]:
                 "order_id": "Order ID",
                 "cancellation_probability": "Cancellation risk",
                 "risk_level": "Risk level",
-                "expected_avoidable_cost": "Expected money saved (Rs.)",
-                "net_expected_savings": "Expected net savings (Rs.)",
+                "expected_avoidable_cost": "Expected money saved ($)",
+                "net_expected_savings": "Expected net savings ($)",
                 "recommendation": "Recommended action",
             })
             display["Cancellation risk"] = display["Cancellation risk"].map(lambda x: f"{x:.1%}")
+            display["Expected money saved ($)"] = display["Expected money saved ($)"].map(lambda x: ui_common.format_usd(x, fx_rate))
+            display["Expected net savings ($)"] = display["Expected net savings ($)"].map(lambda x: ui_common.format_usd(x, fx_rate))
             display["Recommended action"] = display["Recommended action"].replace({
                 "Hold for Verification": "Verify before fulfillment",
                 "Approve for Fulfillment": "Release to fulfillment",
             })
             st.dataframe(display, use_container_width=True, hide_index=True)
+            export = scored.copy()
+            for money_col in ["price", "grand_total", "discount_amount", "expected_avoidable_cost", "expected_false_positive_cost", "net_expected_savings"]:
+                if money_col in export.columns:
+                    export[money_col] = export[money_col].map(lambda x: float(ui_common.pkr_to_usd(x, fx_rate)) if pd.notna(x) else x)
+            export = export.rename(columns={
+                "price": "price_usd",
+                "grand_total": "grand_total_usd",
+                "discount_amount": "discount_amount_usd",
+                "expected_avoidable_cost": "expected_money_saved_usd",
+                "expected_false_positive_cost": "expected_unnecessary_check_cost_usd",
+                "net_expected_savings": "expected_net_savings_usd",
+            })
+            export["fx_pkr_to_usd"] = fx_rate
             st.download_button(
-                "Download scored batch",
-                scored.to_csv(index=False).encode(),
-                "scored_orders.csv",
+                "Download scored batch (USD)",
+                export.to_csv(index=False).encode(),
+                "scored_orders_usd.csv",
                 "text/csv",
                 type="primary",
             )
