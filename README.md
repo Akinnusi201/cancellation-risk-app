@@ -12,7 +12,8 @@ The repository ships these baseline artifacts:
 - `artifacts/production_model.pkl` — pretrained LightGBM production pipeline.
 - `artifacts/active_model.json` — production model version, dataset lineage, threshold, and metrics.
 - `artifacts/reference_orders.csv.gz` — reference sample used for lightweight prediction explanations.
-- `artifacts/demo_orders.csv.gz` — held-out historical orders used for the operations simulation.
+- `artifacts/demo_orders.csv.gz` — risk-stratified live simulation queue used for operational decision practice.
+- `artifacts/historical_demo_orders.csv.gz` — natural final-holdout sample used for retrospective historical evaluation.
 - `artifacts/production_evaluation/` — ROC, PR, calibration, and feature-importance artifacts.
 
 The original 100+ MB raw CSV is intentionally **not** committed. GitHub's normal single-file limit makes the raw source a poor deployment artifact, and production inference does not need it.
@@ -115,7 +116,7 @@ Training a candidate never changes production automatically. Evaluation includes
 
 ## Monitoring and business evaluation
 
-The developer monitoring page now measures runtime model latency, intervention/high-risk rates, pipeline success, prediction drift, input-feature drift, and labeled holdout business impact. A packaged holdout probability file supports aggregate estimated savings and sensitivity analysis across fulfillment-cost, intervention-effectiveness, and intervention-cost assumptions without retraining the model.
+The developer monitoring page now measures runtime model latency, verification/high-risk rates, pipeline success, prediction drift, input-feature drift, and labeled holdout business impact. Runtime drift and live operating statistics use only explicitly production-like traffic (`manual`, `batch`, or API-style scoring). Live simulation and historical evaluation are logged for auditability but excluded from drift calculations. Monitoring requires at least 100 eligible production-like predictions before reporting STABLE, WATCH, or DRIFT. A packaged holdout probability file supports aggregate estimated savings and three simple what-if scenarios without retraining the model.
 
 ## DevOps automation
 
@@ -125,19 +126,16 @@ The developer monitoring page now measures runtime model latency, intervention/h
 
 ## Profit-aware decision rule
 
-The model estimates cancellation probability. The decision layer then applies configurable business assumptions:
+The model estimates cancellation probability. The business layer asks one practical question: **is verifying this order expected to save more money than it costs?**
 
-```text
-Expected Avoidable Cost
-    = P(Cancellation) × Avoidable Fulfillment Cost × Intervention Effectiveness
+The four configurable assumptions shown in the UI are:
 
-Net Expected Savings
-    = Expected Avoidable Cost
-      - Intervention Cost
-      - Expected False-Intervention Friction
-```
+- loss if a canceled order reaches fulfillment,
+- percentage of that loss that verification can prevent,
+- cost to verify one order,
+- extra cost when a good order is verified unnecessarily.
 
-The app recommends **Hold for Verification** when net expected savings are positive. This keeps the probability model separate from business policy.
+Internally the app calculates the probability-weighted money that verification could save, subtracts verification costs, and recommends **Verify before fulfillment** when the estimated net savings are positive. The risk score itself is unchanged by these business assumptions.
 
 ## Dataset notes
 

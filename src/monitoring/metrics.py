@@ -5,6 +5,19 @@ import pandas as pd
 
 from src.config import CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
+# Only explicitly production-like scoring paths contribute to runtime model
+# monitoring. Demo simulation and retrospective evaluation are intentionally
+# excluded because their sampling design is not representative of live traffic.
+PRODUCTION_SCORING_MODES = {
+    "manual",
+    "batch",
+    "production",
+    "production_manual",
+    "production_batch",
+    "api",
+}
+MIN_MONITORING_OBSERVATIONS = 100
+
 
 def population_stability_index(reference, current, bins=10):
     """Population Stability Index using reference quantile bins."""
@@ -53,7 +66,37 @@ def drift_label(value, metric="psi"):
     return "DRIFT"
 
 
-def runtime_prediction_summary(model_version=None):
+def normalize_scoring_mode(value):
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return "legacy_or_unknown"
+    text = str(value).strip().lower()
+    return text or "legacy_or_unknown"
+
+
+def split_monitoring_population(predictions: pd.DataFrame):
+    """Split logged predictions into eligible production traffic and excluded traffic.
+
+    The returned eligible frame is the only population that should be used for
+    runtime drift, latency, intervention-rate, and live business statistics.
+    Simulation and historical-evaluation predictions remain available in the
+    excluded frame for auditability.
+    """
+    if predictions is None or predictions.empty:
+        empty = pd.DataFrame() if predictions is None else predictions.copy()
+        return empty, empty.copy(), {}
+
+    df = predictions.copy()
+    if "scoring_mode" not in df.columns:
+        df["scoring_mode"] = "legacy_or_unknown"
+    df["monitoring_mode"] = df["scoring_mode"].map(normalize_scoring_mode)
+    eligible_mask = df["monitoring_mode"].isin(PRODUCTION_SCORING_MODES)
+    eligible = df.loc[eligible_mask].copy()
+    excluded = df.loc[~eligible_mask].copy()
+    mode_counts = df["monitoring_mode"].value_counts(dropna=False).to_dict()
+    return eligible, excluded, {str(k): int(v) for k, v in mode_counts.items()}
+
+
+def runtime_prediction_summary(model_version=None, production_only=True):
     from src.database.duckdb_manager import dataframe
 
     where = "" if model_version is None else " WHERE model_version = ?"
@@ -62,7 +105,7 @@ def runtime_prediction_summary(model_version=None):
     # older runtime database/module may not have them yet, so fall back to the
     # core prediction fields instead of crashing the monitoring page.
     try:
-        df = dataframe(
+        all_predictions = dataframe(
             f"""
             SELECT predicted_at, probability, threshold, recommendation, latency_ms,
                    net_expected_savings, scoring_mode, feature_json
@@ -72,7 +115,7 @@ def runtime_prediction_summary(model_version=None):
             params,
         )
     except Exception:
-        df = dataframe(
+        all_predictions = dataframe(
             f"""
             SELECT predicted_at, probability, threshold, recommendation, net_expected_savings
             FROM predictions{where}
@@ -81,21 +124,46 @@ def runtime_prediction_summary(model_version=None):
             params,
         )
         for col in ["latency_ms", "scoring_mode", "feature_json"]:
-            df[col] = np.nan
+            all_predictions[col] = np.nan
+
+    if all_predictions.empty:
+        return all_predictions, {
+            "total_predictions": 0,
+            "eligible_predictions": 0,
+            "excluded_predictions": 0,
+            "mode_counts": {},
+            "minimum_required": MIN_MONITORING_OBSERVATIONS,
+            "monitoring_ready": False,
+        }
+
+    eligible, excluded, mode_counts = split_monitoring_population(all_predictions)
+    df = eligible if production_only else all_predictions
+
+    summary = {
+        "total_predictions": int(len(all_predictions)),
+        "eligible_predictions": int(len(eligible)),
+        "excluded_predictions": int(len(excluded)),
+        "mode_counts": mode_counts,
+        "minimum_required": MIN_MONITORING_OBSERVATIONS,
+        "monitoring_ready": bool(len(eligible) >= MIN_MONITORING_OBSERVATIONS),
+    }
 
     if df.empty:
-        return df, {}
+        return df, summary
+
     latency = pd.to_numeric(df["latency_ms"], errors="coerce").dropna()
-    summary = {
+    summary.update({
         "predictions": len(df),
         "average_risk": float(df["probability"].mean()),
         "high_risk_rate": float((df["probability"] >= df["threshold"]).mean()),
         "intervention_rate": float((df["recommendation"] == "Hold for Verification").mean()),
-        "expected_net_savings_total": float(df.loc[df["recommendation"] == "Hold for Verification", "net_expected_savings"].fillna(0).sum()),
+        "expected_net_savings_total": float(
+            df.loc[df["recommendation"] == "Hold for Verification", "net_expected_savings"].fillna(0).sum()
+        ),
         "latency_mean_ms": float(latency.mean()) if len(latency) else None,
         "latency_p95_ms": float(latency.quantile(0.95)) if len(latency) else None,
         "latency_max_ms": float(latency.max()) if len(latency) else None,
-    }
+    })
     return df, summary
 
 

@@ -119,7 +119,13 @@ def score_order(
     }
 
 
-def score_batch(rows: pd.DataFrame, policy=None, log_runtime=True):
+def score_batch(rows: pd.DataFrame, policy=None, log_runtime=True, persist=True):
+    """Score a production batch and optionally persist each prediction for monitoring.
+
+    Batch predictions are explicitly tagged as ``batch`` so they contribute to
+    production monitoring. Simulation and retrospective-evaluation traffic use
+    different scoring modes and are excluded from drift calculations.
+    """
     model, meta = load_active_model()
     if model is None:
         raise RuntimeError("No packaged production model is available.")
@@ -139,6 +145,47 @@ def score_batch(rows: pd.DataFrame, policy=None, log_runtime=True):
     output["recommendation"] = [x["recommendation"] for x in economic]
     output["inference_latency_ms_per_order"] = per_order_ms
 
+    if persist and len(rows):
+        records = []
+        for i, (_, row_series) in enumerate(rows.iterrows()):
+            row_df = row_series.to_frame().T
+            econ = economic[i]
+            records.append([
+                f"pred_{uuid.uuid4().hex[:12]}",
+                str(row_series.get("order_id", f"batch_{i}")),
+                now(),
+                meta.get("model_name", "lightgbm"),
+                str(meta.get("model_version", "unknown")),
+                meta.get("dataset_version", "unknown"),
+                float(probs[i]),
+                threshold,
+                econ["recommendation"],
+                None,
+                econ["expected_avoidable_cost"],
+                econ["expected_false_positive_cost"],
+                econ["net_expected_savings"],
+                econ["policy"]["avoidable_fulfillment_cost"],
+                econ["policy"]["intervention_effectiveness"],
+                econ["policy"]["intervention_cost"],
+                econ["policy"]["false_positive_friction_cost"],
+                per_order_ms,
+                "batch",
+                _feature_payload(row_df),
+            ])
+        with connect() as con:
+            con.executemany(
+                """
+                INSERT INTO predictions
+                (prediction_id, order_id, predicted_at, model_name, model_version, dataset_version,
+                 probability, threshold, recommendation, actual_outcome, expected_avoidable_cost,
+                 expected_false_positive_cost, net_expected_savings, avoidable_fulfillment_cost,
+                 intervention_effectiveness, intervention_cost, false_positive_friction_cost,
+                 latency_ms, scoring_mode, feature_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                records,
+            )
+
     if log_runtime:
         log_event(
             f"event_{uuid.uuid4().hex[:10]}",
@@ -150,6 +197,7 @@ def score_batch(rows: pd.DataFrame, policy=None, log_runtime=True):
                 "total_latency_ms": elapsed_ms,
                 "latency_ms_per_order": per_order_ms,
                 "model_version": meta.get("model_version"),
+                "persisted_predictions": bool(persist),
             },
         )
     return output

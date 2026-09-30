@@ -5,15 +5,16 @@ import streamlit as st
 
 from src.auth import require_role
 try:
-    from src.business import evaluate_business_policy, sensitivity_analysis
+    from src.business import evaluate_business_policy
 except ImportError:
     # Compatibility with a partially upgraded deployment that still has the
     # earlier live-scoring-only src.business module.
-    from src.business_evaluation import evaluate_business_policy, sensitivity_analysis
+    from src.business_evaluation import evaluate_business_policy
 from src.config import ARTIFACT_DIR, ROOT
 from src.models.registry import active_metadata
 from src.models.train import list_candidates
 from src.monitoring.metrics import (
+    MIN_MONITORING_OBSERVATIONS,
     drift_label,
     feature_drift,
     pipeline_reliability,
@@ -66,28 +67,78 @@ runtime_tab, drift_tab, business_tab, evaluation_tab, candidate_tab = st.tabs([
     "Candidate History",
 ])
 
+MODE_LABELS = {
+    "manual": "Manual orders",
+    "batch": "Batch orders",
+    "production": "Production/API",
+    "production_manual": "Production manual",
+    "production_batch": "Production batch",
+    "api": "API orders",
+    "simulation_live": "Live simulation",
+    "simulation_historical": "Historical evaluation",
+    "simulation": "Legacy simulation",
+    "historical_evaluation": "Legacy historical evaluation",
+    "single": "Legacy / unclassified single",
+    "legacy_or_unknown": "Legacy / unknown",
+}
+PRODUCTION_MODES = {"manual", "batch", "production", "production_manual", "production_batch", "api"}
+
+
+def _traffic_population_table(mode_counts):
+    rows = []
+    for mode, count in sorted(mode_counts.items(), key=lambda x: (-x[1], x[0])):
+        rows.append({
+            "Traffic type": MODE_LABELS.get(mode, mode),
+            "Scoring mode": mode,
+            "Predictions": int(count),
+            "Used for production monitoring": "Yes" if mode in PRODUCTION_MODES else "No",
+        })
+    return pd.DataFrame(rows)
+
+
 with runtime_tab:
     st.subheader("Production inference")
     runtime_predictions, runtime = runtime_prediction_summary(meta.get("model_version"))
-    if not runtime:
-        st.info("No runtime single-order predictions have been recorded yet. Score orders in the Operations workspace to populate live monitoring.")
-    else:
-        a, b, c, d = st.columns(4)
-        a.metric("Predictions", f"{runtime['predictions']:,}")
-        b.metric("Average Risk", f"{runtime['average_risk']:.1%}")
-        c.metric("High-Risk Rate", f"{runtime['high_risk_rate']:.1%}")
-        d.metric("Intervention Rate", f"{runtime['intervention_rate']:.1%}")
-        e, f, g, h = st.columns(4)
-        e.metric("Mean Model Latency", f"{runtime['latency_mean_ms']:.1f} ms" if runtime['latency_mean_ms'] is not None else "n/a")
-        f.metric("P95 Model Latency", f"{runtime['latency_p95_ms']:.1f} ms" if runtime['latency_p95_ms'] is not None else "n/a")
-        g.metric("Max Model Latency", f"{runtime['latency_max_ms']:.1f} ms" if runtime['latency_max_ms'] is not None else "n/a")
-        h.metric("Expected Net Savings", f"Rs. {runtime['expected_net_savings_total']:,.0f}")
-        st.caption("Latency measures the core production model probability call. Risk explanations are calculated separately and do not inflate this value.")
 
-        trend = runtime_predictions.sort_values("predicted_at").set_index("predicted_at")[["probability"]]
-        if len(trend):
-            st.markdown("#### Runtime cancellation-risk trend")
-            st.line_chart(trend)
+    total = int(runtime.get("total_predictions", 0))
+    eligible = int(runtime.get("eligible_predictions", 0))
+    excluded = int(runtime.get("excluded_predictions", 0))
+    if total == 0:
+        st.info("No runtime predictions have been recorded yet. Score manual or batch orders in the Operations workspace to populate production monitoring.")
+    else:
+        st.markdown("#### Monitoring population")
+        a, b, c = st.columns(3)
+        a.metric("All Logged Predictions", f"{total:,}")
+        b.metric("Production-Monitoring Eligible", f"{eligible:,}")
+        c.metric("Demo / Evaluation Excluded", f"{excluded:,}")
+        st.caption(
+            "Only explicitly production-like traffic (manual, batch, or API scoring) contributes to drift, runtime risk, verification rate, latency, and live savings statistics. "
+            "Live simulation and historical evaluation remain logged for auditability but are excluded from those calculations."
+        )
+        population_table = _traffic_population_table(runtime.get("mode_counts", {}))
+        if not population_table.empty:
+            st.dataframe(population_table, use_container_width=True, hide_index=True)
+
+        if eligible == 0:
+            st.info("No production-like observations are available yet. Simulation traffic is intentionally not used as a substitute for production monitoring data.")
+        else:
+            st.markdown("#### Eligible production traffic")
+            a, b, c, d = st.columns(4)
+            a.metric("Predictions", f"{runtime['predictions']:,}")
+            b.metric("Average Risk", f"{runtime['average_risk']:.1%}")
+            c.metric("High-Risk Rate", f"{runtime['high_risk_rate']:.1%}")
+            d.metric("Verification Rate", f"{runtime['intervention_rate']:.1%}")
+            e, f, g, h = st.columns(4)
+            e.metric("Mean Model Latency", f"{runtime['latency_mean_ms']:.1f} ms" if runtime['latency_mean_ms'] is not None else "n/a")
+            f.metric("P95 Model Latency", f"{runtime['latency_p95_ms']:.1f} ms" if runtime['latency_p95_ms'] is not None else "n/a")
+            g.metric("Max Model Latency", f"{runtime['latency_max_ms']:.1f} ms" if runtime['latency_max_ms'] is not None else "n/a")
+            h.metric("Estimated Net Savings", f"Rs. {runtime['expected_net_savings_total']:,.0f}")
+            st.caption("Latency measures the core production model probability call. Risk explanations are calculated separately and do not inflate this value.")
+
+            trend = runtime_predictions.sort_values("predicted_at").set_index("predicted_at")[["probability"]]
+            if len(trend):
+                st.markdown("#### Runtime cancellation-risk trend")
+                st.line_chart(trend)
 
     st.markdown("#### Pipeline reliability")
     reliability = pipeline_reliability()
@@ -100,15 +151,34 @@ with runtime_tab:
 
 with drift_tab:
     st.subheader("Prediction drift")
-    runtime_predictions, _ = runtime_prediction_summary(meta.get("model_version"))
-    if predictions_path.exists() and len(runtime_predictions):
+    runtime_predictions, runtime = runtime_prediction_summary(meta.get("model_version"))
+    eligible = int(runtime.get("eligible_predictions", 0))
+    excluded = int(runtime.get("excluded_predictions", 0))
+
+    st.caption(
+        f"Drift uses production-like traffic only. {excluded:,} simulation/evaluation/legacy observations are currently excluded from the monitoring population."
+    )
+
+    if not predictions_path.exists():
+        st.warning("The packaged reference prediction distribution is unavailable for this model version.")
+    elif eligible < MIN_MONITORING_OBSERVATIONS:
+        historical = pd.read_csv(predictions_path)
+        a, b, c = st.columns(3)
+        a.metric("Reference Mean Risk", f"{historical['probability'].mean():.1%}")
+        b.metric("Eligible Runtime Scores", f"{eligible:,}")
+        c.metric("Minimum Required", f"{MIN_MONITORING_OBSERVATIONS:,}")
+        st.info(
+            f"Monitoring status: INSUFFICIENT RUNTIME DATA. At least {MIN_MONITORING_OBSERVATIONS} production-like observations are required before the app reports STABLE, WATCH, or DRIFT. "
+            "Demo simulation and historical-evaluation scores do not count toward this threshold."
+        )
+    else:
         historical = pd.read_csv(predictions_path)
         psi = population_stability_index(historical["probability"], runtime_predictions["probability"])
         status = drift_label(psi, "psi")
         a, b, c = st.columns(3)
         a.metric("Reference Mean Risk", f"{historical['probability'].mean():.1%}")
-        b.metric("Runtime Mean Risk", f"{runtime_predictions['probability'].mean():.1%}")
-        c.metric("Prediction PSI", f"{psi:.3f}" if psi is not None else "Need ≥20 runtime scores")
+        b.metric("Production Runtime Mean Risk", f"{runtime_predictions['probability'].mean():.1%}")
+        c.metric("Prediction PSI", f"{psi:.3f}" if psi is not None else "Unavailable")
         if status == "STABLE":
             st.success("Prediction distribution status: STABLE")
         elif status == "WATCH":
@@ -116,84 +186,97 @@ with drift_tab:
         elif status == "DRIFT":
             st.error("Prediction distribution status: DRIFT")
         else:
-            st.info("At least 20 runtime predictions are required before PSI is reported.")
+            st.info("Prediction drift could not be estimated from the available production observations.")
         st.caption("Project monitoring thresholds: PSI < 0.10 stable, 0.10–0.25 watch, > 0.25 drift.")
-    else:
-        st.info("Runtime prediction drift becomes available after Operations has scored orders.")
 
     st.markdown("#### Input feature drift")
     reference = load_reference()
     if reference.empty:
         st.caption("Packaged reference data is unavailable.")
-    elif runtime_predictions.empty:
-        st.caption("No runtime feature observations are available yet.")
+    elif eligible < MIN_MONITORING_OBSERVATIONS:
+        st.info(
+            f"Feature drift is held until at least {MIN_MONITORING_OBSERVATIONS} production-like observations are available. Current eligible count: {eligible:,}."
+        )
     else:
         fd = feature_drift(reference, runtime_predictions)
         if fd.empty or fd["Drift Score"].notna().sum() == 0:
-            st.info("At least 20 logged runtime orders are required for stable feature-drift estimates.")
+            st.info("Production feature observations are unavailable or incomplete for drift estimation.")
         else:
             fd["Feature"] = fd["Feature"].map(lambda x: FEATURE_LABELS.get(x, x))
             st.dataframe(fd, use_container_width=True, hide_index=True)
             st.caption("Numeric features use PSI. Categorical features use total-variation distance. These thresholds are monitoring heuristics for this prototype, not universal statistical cutoffs.")
 
 with business_tab:
-    st.subheader("Historical business-policy evaluation")
+    st.subheader("Business value on historical test orders")
+    st.caption(
+        "This section asks a simple question: if the model had been used on the historical test period, would verifying selected orders have been worth the estimated cost?"
+    )
     if not predictions_path.exists():
         st.warning("The production holdout probability artifact is unavailable for this model version.")
     else:
         holdout = pd.read_csv(predictions_path)
         policy = business_policy_controls("monitoring")
         impact = evaluate_business_policy(holdout["is_canceled"], holdout["probability"], policy)
+
         a, b, c, d = st.columns(4)
-        a.metric("Holdout Orders", f"{impact['orders']:,}")
-        b.metric("Orders Intervened", f"{impact['interventions']:,}", f"{impact['intervention_rate']:.1%}")
-        c.metric("Canceled Orders Captured", f"{impact['cancellations_intervened']:,}", f"{impact['cancellation_capture_rate']:.1%}")
-        d.metric("False Interventions", f"{impact['false_interventions']:,}", f"{impact['false_intervention_rate']:.1%} of interventions")
+        a.metric("Historical Orders", f"{impact['orders']:,}")
+        b.metric("Orders Sent for Verification", f"{impact['interventions']:,}", f"{impact['intervention_rate']:.1%} of orders")
+        c.metric("Cancellations Reached", f"{impact['cancellations_intervened']:,}", f"{impact['cancellation_capture_rate']:.1%} of cancellations")
+        d.metric("Unnecessary Verifications", f"{impact['false_interventions']:,}", f"{impact['false_intervention_rate']:.1%} of verifications")
+
         e, f, g, h = st.columns(4)
-        e.metric("Estimated Avoided Cost", f"Rs. {impact['estimated_avoided_cost']:,.0f}")
-        f.metric("Intervention Cost", f"Rs. {impact['intervention_cost_total']:,.0f}")
-        g.metric("False-Intervention Cost", f"Rs. {impact['false_intervention_cost_total']:,.0f}")
+        e.metric("Estimated Cost Prevented", f"Rs. {impact['estimated_avoided_cost']:,.0f}")
+        f.metric("Verification Cost", f"Rs. {impact['intervention_cost_total']:,.0f}")
+        g.metric("Extra Cost of Unnecessary Checks", f"Rs. {impact['false_intervention_cost_total']:,.0f}")
         h.metric("Net Savings / 1,000 Orders", f"Rs. {impact['net_savings_per_1000_orders']:,.0f}")
-        st.metric("Estimated Net Savings on Holdout", f"Rs. {impact['net_savings']:,.0f}")
+
+        st.metric("Estimated Net Savings on Historical Test Orders", f"Rs. {impact['net_savings']:,.0f}")
         st.caption(
-            "This is a transparent counterfactual estimate, not observed warehouse savings. The dataset does not contain internal fulfillment or intervention costs, so the configured assumptions drive the economic result."
+            "These are estimated, not observed, savings. The source data does not include the retailer's real warehouse, verification, or customer-delay costs, so the values above depend on the business assumptions you choose."
         )
 
-        st.markdown("#### Sensitivity analysis")
-        defaults = policy
-        fulfillment_costs = sorted({
-            max(0.0, defaults["avoidable_fulfillment_cost"] * 0.5),
-            defaults["avoidable_fulfillment_cost"],
-            defaults["avoidable_fulfillment_cost"] * 1.5,
-        })
-        effectiveness_values = sorted({
-            max(0.05, defaults["intervention_effectiveness"] - 0.20),
-            defaults["intervention_effectiveness"],
-            min(0.95, defaults["intervention_effectiveness"] + 0.20),
-        })
-        intervention_costs = sorted({
-            max(0.0, defaults["intervention_cost"] * 0.5),
-            defaults["intervention_cost"],
-            defaults["intervention_cost"] * 1.5,
-        })
-        sensitivity = sensitivity_analysis(
-            holdout["is_canceled"],
-            holdout["probability"],
-            fulfillment_costs,
-            effectiveness_values,
-            intervention_costs,
-            defaults["false_positive_friction_cost"],
+        st.markdown("#### Simple what-if scenarios")
+        st.caption(
+            "Instead of a large sensitivity grid, compare three easy cases. 'Current assumptions' uses the values above. Conservative assumes less preventable loss and higher checking costs; Favorable assumes more preventable loss and lower checking costs."
         )
-        sensitivity = sensitivity.sort_values(
-            ["avoidable_fulfillment_cost", "intervention_effectiveness", "intervention_cost"]
-        )
-        display = sensitivity.copy()
-        display["intervention_effectiveness"] = display["intervention_effectiveness"].map(lambda x: f"{x:.0%}")
-        display["intervention_rate"] = display["intervention_rate"].map(lambda x: f"{x:.1%}")
-        display["cancellation_capture_rate"] = display["cancellation_capture_rate"].map(lambda x: f"{x:.1%}")
-        display["net_savings"] = display["net_savings"].map(lambda x: f"Rs. {x:,.0f}")
-        display["net_savings_per_1000_orders"] = display["net_savings_per_1000_orders"].map(lambda x: f"Rs. {x:,.0f}")
-        st.dataframe(display, use_container_width=True, hide_index=True)
+
+        base = policy
+        scenarios = [
+            (
+                "Conservative",
+                {
+                    "avoidable_fulfillment_cost": base["avoidable_fulfillment_cost"] * 0.75,
+                    "intervention_effectiveness": max(0.05, base["intervention_effectiveness"] - 0.15),
+                    "intervention_cost": base["intervention_cost"] * 1.25,
+                    "false_positive_friction_cost": base["false_positive_friction_cost"] * 1.25,
+                },
+            ),
+            ("Current assumptions", dict(base)),
+            (
+                "Favorable",
+                {
+                    "avoidable_fulfillment_cost": base["avoidable_fulfillment_cost"] * 1.25,
+                    "intervention_effectiveness": min(0.95, base["intervention_effectiveness"] + 0.15),
+                    "intervention_cost": base["intervention_cost"] * 0.75,
+                    "false_positive_friction_cost": base["false_positive_friction_cost"] * 0.75,
+                },
+            ),
+        ]
+
+        rows = []
+        for name, scenario_policy in scenarios:
+            result = evaluate_business_policy(holdout["is_canceled"], holdout["probability"], scenario_policy)
+            rows.append({
+                "Scenario": name,
+                "Loss per late cancellation": f"Rs. {scenario_policy['avoidable_fulfillment_cost']:,.0f}",
+                "Loss prevented by verification": f"{scenario_policy['intervention_effectiveness']:.0%}",
+                "Cost per verification": f"Rs. {scenario_policy['intervention_cost']:,.0f}",
+                "Extra cost if unnecessary": f"Rs. {scenario_policy['false_positive_friction_cost']:,.0f}",
+                "Orders verified": f"{result['intervention_rate']:.1%}",
+                "Cancellations reached": f"{result['cancellation_capture_rate']:.1%}",
+                "Net savings / 1,000 orders": f"Rs. {result['net_savings_per_1000_orders']:,.0f}",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 with evaluation_tab:
     st.subheader("Packaged production evaluation")

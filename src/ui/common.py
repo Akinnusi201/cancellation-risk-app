@@ -55,30 +55,61 @@ def load_historical_demo_orders():
 
 
 def business_policy_controls(key_prefix="policy"):
+    """Render business assumptions in plain operational language.
+
+    Internal policy keys remain unchanged for database/model compatibility, while
+    the UI describes each quantity in terms an operations manager can interpret.
+    """
     defaults = load_policy()
-    with st.expander("Economic decision assumptions", expanded=False):
-        st.caption("These parameters affect the intervention recommendation, not the model's cancellation probability.")
+    with st.expander("Business assumptions for verification", expanded=False):
+        st.caption(
+            "These assumptions do not change the model's cancellation risk. They only decide whether verifying an order is expected to save money."
+        )
         c1, c2 = st.columns(2)
         avoidable = c1.number_input(
-            "Avoidable fulfillment cost (Rs.)", min_value=0.0, value=float(defaults["avoidable_fulfillment_cost"]),
-            step=100.0, key=f"{key_prefix}_avoidable",
+            "Loss if a canceled order reaches fulfillment (Rs.)",
+            min_value=0.0,
+            value=float(defaults["avoidable_fulfillment_cost"]),
+            step=100.0,
+            key=f"{key_prefix}_avoidable",
+            help="Approximate picking, packing, payment, service, or other cost that could be avoided if a cancellation is caught before fulfillment.",
         )
-        effectiveness = c2.slider(
-            "Intervention effectiveness", 0.0, 1.0, float(defaults["intervention_effectiveness"]), 0.05,
-            key=f"{key_prefix}_effectiveness",
+        prevention_pct = c2.slider(
+            "Loss prevented by verification (%)",
+            min_value=0,
+            max_value=100,
+            value=int(round(float(defaults["intervention_effectiveness"]) * 100)),
+            step=5,
+            key=f"{key_prefix}_effectiveness_pct",
+            help="The share of the cancellation-related loss that a verification step is assumed to prevent. Example: 55% means a Rs. 2,000 loss is reduced by about Rs. 1,100 when verification works.",
         )
         c3, c4 = st.columns(2)
         intervention = c3.number_input(
-            "Intervention cost (Rs.)", min_value=0.0, value=float(defaults["intervention_cost"]),
-            step=25.0, key=f"{key_prefix}_intervention",
+            "Cost to verify one order (Rs.)",
+            min_value=0.0,
+            value=float(defaults["intervention_cost"]),
+            step=25.0,
+            key=f"{key_prefix}_intervention",
+            help="Direct operational cost of the verification step, such as a message, payment check, or manual review.",
         )
-        friction = c4.number_input(
-            "False-intervention friction cost (Rs.)", min_value=0.0, value=float(defaults["false_positive_friction_cost"]),
-            step=25.0, key=f"{key_prefix}_friction",
+        unnecessary = c4.number_input(
+            "Extra cost if a good order is verified (Rs.)",
+            min_value=0.0,
+            value=float(defaults["false_positive_friction_cost"]),
+            step=25.0,
+            key=f"{key_prefix}_unnecessary",
+            help="Estimated cost of unnecessary delay, customer contact, or service effort when an order would have completed normally. Set this to 0 if you do not want to model that cost.",
         )
+
+        prevented_if_canceled = avoidable * (prevention_pct / 100.0)
+        st.info(
+            f"Plain-English assumption: if the order would cancel, verification can prevent about **Rs. {prevented_if_canceled:,.0f}** of loss. "
+            f"Every verification costs **Rs. {intervention:,.0f}**, and an unnecessary verification adds **Rs. {unnecessary:,.0f}**."
+        )
+
     return {
         "avoidable_fulfillment_cost": avoidable,
-        "intervention_effectiveness": effectiveness,
+        "intervention_effectiveness": prevention_pct / 100.0,
         "intervention_cost": intervention,
-        "false_positive_friction_cost": friction,
+        "false_positive_friction_cost": unnecessary,
     }

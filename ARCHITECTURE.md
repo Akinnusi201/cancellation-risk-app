@@ -47,13 +47,11 @@ Can access DataOps, candidate training/promotion, monitoring, MLflow experiments
 
 ## Profit-aware decision layer
 
-The machine-learning model outputs `P(Cancellation)`. The action policy is calculated separately:
+The machine-learning model outputs `P(Cancellation)`. The action policy is calculated separately and presented in plain operational language.
 
-`Expected Avoidable Cost = P(Cancellation) × Avoidable Fulfillment Cost × Intervention Effectiveness`
+The business layer estimates how much money verification could save, then subtracts the cost of verifying the order and the expected cost of unnecessarily verifying an order that would have completed normally. Positive estimated net savings produces a **Verify before fulfillment** recommendation.
 
-`Net Expected Savings = Expected Avoidable Cost - Intervention Cost - Expected False-Intervention Friction`
-
-Positive net expected savings produces a Hold-for-Verification recommendation. This means model training and business-cost policy can change independently.
+The UI exposes four assumptions: loss from a late cancellation, loss prevented by verification, cost per verification, and extra cost of an unnecessary verification. These assumptions change the action recommendation, not the model probability.
 
 ## Packaged baseline
 
@@ -67,9 +65,9 @@ Streamlit Community Cloud does not guarantee persistence for files created after
 
 ## Production monitoring
 
-Single-order inference records core model latency, probability, recommendation, policy inputs, and the model feature vector used for scoring. Monitoring computes runtime latency summaries, pipeline success rates, prediction PSI, numeric-feature PSI, categorical total-variation drift, and aggregate expected intervention activity. At least 20 runtime observations are required before drift estimates are displayed.
+Single-order inference records core model latency, probability, recommendation, policy inputs, and the model feature vector used for scoring. Monitoring computes runtime latency summaries, pipeline success rates, prediction PSI, numeric-feature PSI, categorical total-variation drift, and aggregate expected verification activity. At least 100 eligible production-like runtime observations are required before drift estimates are displayed.
 
-The packaged temporal holdout includes production probabilities and labels. This supports historical business-policy evaluation and sensitivity analysis without retraining. These savings are counterfactual estimates because the source dataset does not contain warehouse labor or intervention-effectiveness measurements.
+The packaged temporal holdout includes production probabilities and labels. This supports historical business-value evaluation and three simple what-if scenarios without retraining. These savings are counterfactual estimates because the source dataset does not contain warehouse labor, verification-cost, or verification-success measurements.
 
 ## DevOps
 

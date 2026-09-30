@@ -62,21 +62,32 @@ def _score_order_compat(row, reference, policy, scoring_mode):
 
 
 def show_score(sc, row):
+    verify = sc["recommendation"] == "Hold for Verification"
+    action = "Verify before fulfillment" if verify else "Release to fulfillment"
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Cancellation Risk", f"{sc['probability']:.1%}")
     c2.metric("Risk Level", sc["risk_level"])
-    c3.metric("Expected Avoidable Cost", f"Rs. {sc['expected_avoidable_cost']:,.0f}")
-    c4.metric("Net Expected Savings", f"Rs. {sc['net_expected_savings']:,.0f}")
-    if sc["recommendation"] == "Hold for Verification":
-        st.warning(f"Recommended action: **{sc['recommendation']}**")
+    c3.metric("Expected Money Saved", f"Rs. {sc['expected_avoidable_cost']:,.0f}")
+    c4.metric("Expected Net Savings", f"Rs. {sc['net_expected_savings']:,.0f}")
+
+    if verify:
+        st.warning(f"Recommended action: **{action}**")
     else:
-        st.success(f"Recommended action: **{sc['recommendation']}**")
-    latency = sc.get("latency_ms")
-    latency_text = f" Core model latency: {latency:.1f} ms." if latency is not None else ""
+        st.success(f"Recommended action: **{action}**")
+
+    policy_used = sc.get("policy", {})
+    verify_cost = float(policy_used.get("intervention_cost", 0.0))
+    unnecessary_cost = float(policy_used.get("false_positive_friction_cost", 0.0))
     st.caption(
-        f"Technical risk threshold: {sc['threshold']:.1%}. Economic recommendation uses the configurable cost policy above."
-        f"{latency_text}"
+        f"Why: the app compares the expected cost prevented with the expected cost of verification. "
+        f"A verification costs Rs. {verify_cost:,.0f}; if the order would have completed normally, the model also allows Rs. {unnecessary_cost:,.0f} for unnecessary delay/service effort."
     )
+
+    latency = sc.get("latency_ms")
+    if latency is not None:
+        st.caption(f"Model scoring latency: {latency:.1f} ms. The {sc['threshold']:.1%} technical threshold labels risk as High/Low; it does not by itself decide the business action.")
+
     st.markdown("#### Key risk drivers")
     if sc["reasons"]:
         for feature, impact in sc["reasons"]:
@@ -135,11 +146,11 @@ with tabs[0]:
         decision_payload = dict(sc)
         if mode == "Live Operations Simulation":
             decision_payload["actual_outcome"] = None
-        if b1.button("✅ Approve for Fulfillment", use_container_width=True, disabled=st.session_state.get("decision_made", False)):
+        if b1.button("✅ Release to Fulfillment", use_container_width=True, disabled=st.session_state.get("decision_made", False)):
             record_decision(decision_payload, row.iloc[0]["order_id"], "Approve for Fulfillment")
             st.session_state.decision_made = True
             st.rerun()
-        if b2.button("🟠 Hold for Verification", use_container_width=True, disabled=st.session_state.get("decision_made", False)):
+        if b2.button("🟠 Verify Before Fulfillment", use_container_width=True, disabled=st.session_state.get("decision_made", False)):
             record_decision(decision_payload, row.iloc[0]["order_id"], "Hold for Verification")
             st.session_state.decision_made = True
             st.rerun()
@@ -206,7 +217,20 @@ with tabs[2]:
                 "order_id", "cancellation_probability", "risk_level", "expected_avoidable_cost",
                 "net_expected_savings", "recommendation",
             ]
-            st.dataframe(scored[show_cols], use_container_width=True, hide_index=True)
+            display = scored[show_cols].copy().rename(columns={
+                "order_id": "Order ID",
+                "cancellation_probability": "Cancellation risk",
+                "risk_level": "Risk level",
+                "expected_avoidable_cost": "Expected money saved (Rs.)",
+                "net_expected_savings": "Expected net savings (Rs.)",
+                "recommendation": "Recommended action",
+            })
+            display["Cancellation risk"] = display["Cancellation risk"].map(lambda x: f"{x:.1%}")
+            display["Recommended action"] = display["Recommended action"].replace({
+                "Hold for Verification": "Verify before fulfillment",
+                "Approve for Fulfillment": "Release to fulfillment",
+            })
+            st.dataframe(display, use_container_width=True, hide_index=True)
             st.download_button(
                 "Download scored batch",
                 scored.to_csv(index=False).encode(),

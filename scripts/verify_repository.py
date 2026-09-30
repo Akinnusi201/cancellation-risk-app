@@ -13,6 +13,7 @@ predict_text = (ROOT / "src/models/predict.py").read_text()
 business_text = (ROOT / "src/business.py").read_text()
 score_text = (ROOT / "views/2_Score_Order.py").read_text()
 monitor_text = (ROOT / "views/7_Model_Monitoring.py").read_text()
+monitor_metrics_text = (ROOT / "src/monitoring/metrics.py").read_text()
 mlflow_view_text = (ROOT / "views/8_MLflow_Experiments.py").read_text()
 train_text = (ROOT / "src/models/train.py").read_text()
 workflows = list((ROOT / ".github/workflows").glob("*.yml")) + list((ROOT / ".github/workflows").glob("*.yaml"))
@@ -30,6 +31,9 @@ check("Stage-by-stage MLflow progress", "stage_callback=update_stage" in mlflow_
 check("Fast manual experiment logging", "log_model_artifact=False" in train_text, "manual MLflow runs skip non-promotable model serialization")
 check("Callback isolation", "n_estimators=70" in train_text and "stage_callback=stage_callback" in train_text, "manual callbacks stay outside LightGBM hyperparameters")
 check("Balanced live simulation", (ROOT / "artifacts/demo_orders.csv.gz").exists() and (ROOT / "artifacts/historical_demo_orders.csv.gz").exists(), "separate live and historical queues")
+check("Production-only drift population", "PRODUCTION_SCORING_MODES" in monitor_metrics_text and "split_monitoring_population" in monitor_metrics_text, "simulation/evaluation traffic excluded from drift")
+check("Minimum drift sample guard", "MIN_MONITORING_OBSERVATIONS = 100" in monitor_metrics_text and "INSUFFICIENT RUNTIME DATA" in monitor_text, "no drift label before 100 eligible production scores")
+check("Batch prediction telemetry", '"batch"' in predict_text and "executemany" in predict_text, "batch predictions are persisted for production monitoring")
 
 failed = False
 for name, ok, detail in checks:

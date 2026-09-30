@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.6 - Clearer business and economic language
+- Replaced abstract UI terms such as intervention effectiveness and false-intervention friction with plain operational language.
+- Reframed the decision as a simple question: is verifying this order expected to save more money than it costs?
+- Renamed scoring outputs to Expected Money Saved and Expected Net Savings, with a plain-English explanation of the calculation.
+- Updated Operations Dashboard and Decision History labels for readability.
+- Simplified Business Impact from a 27-row sensitivity grid to three what-if scenarios: Conservative, Current assumptions, and Favorable.
+- Kept the underlying profit-aware calculations and stored policy fields backward compatible.
+
+## v3.5 - Production-only monitoring population
+- Excluded live simulation, historical evaluation, legacy simulation, and unknown scoring modes from production drift and runtime statistics.
+- Added a 100-observation minimum before monitoring can report STABLE, WATCH, or DRIFT.
+- Added a monitoring-population breakdown so excluded demo traffic remains visible and auditable.
+- Persisted individual batch predictions with `scoring_mode=batch` so batch traffic contributes to production monitoring.
+- Added regression tests for monitoring-population isolation and the minimum-sample guard.
+
 ## v3.4 - Score-page rolling-upgrade compatibility
 - Removed the hard import of `load_historical_demo_orders` from `src.ui.common`.
 - Historical Evaluation now reads the packaged historical queue directly when an older UI helper module is still deployed.
