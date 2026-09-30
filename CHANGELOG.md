@@ -53,3 +53,12 @@
 - Added fallback business-evaluation module to prevent mixed-version ImportError.
 - CI detection now recognizes any YAML workflow and reports when hidden .github files were not copied.
 - Added runtime contract tests to catch partial repository upgrades.
+
+
+## 2026-09-30 experiment responsiveness update
+- Replaced the misleading single 0-100 MLflow progress bar with one stage-local progress bar that is cleared between steps.
+- Added short live descriptions for dataset loading, temporal splitting, preprocessing, actual LightGBM tree iterations, threshold tuning, holdout evaluation, artifact generation, and MLflow logging.
+- Added deterministic Fast Demo mode using up to 90,000 orders spread across the full timeline; runs are explicitly labeled in MLflow.
+- Cached immutable dataset-version loading between experiments.
+- Manual MLflow experiments now skip full model serialization because they cannot be promoted from that page; ModelOps candidates still log promotable model artifacts.
+- Added explicit 100% completion and elapsed-time reporting so successful runs no longer appear stuck at 88%.

@@ -13,6 +13,8 @@ predict_text = (ROOT / "src/models/predict.py").read_text()
 business_text = (ROOT / "src/business.py").read_text()
 score_text = (ROOT / "views/2_Score_Order.py").read_text()
 monitor_text = (ROOT / "views/7_Model_Monitoring.py").read_text()
+mlflow_view_text = (ROOT / "views/8_MLflow_Experiments.py").read_text()
+train_text = (ROOT / "src/models/train.py").read_text()
 workflows = list((ROOT / ".github/workflows").glob("*.yml")) + list((ROOT / ".github/workflows").glob("*.yaml"))
 
 check("Packaged production model", (ROOT / "artifacts/production_model.pkl").exists(), "artifacts/production_model.pkl")
@@ -22,6 +24,8 @@ check("Business evaluation functions", "def evaluate_business_policy" in busines
 check("Monitoring compatibility", "src.business_evaluation" in monitor_text, "views/7_Model_Monitoring.py")
 check("GitHub Actions workflow", bool(workflows), ".github/workflows/*.yml")
 check("Dockerfile", (ROOT / "Dockerfile").exists(), "Dockerfile")
+check("Stage-by-stage MLflow progress", "stage_callback=update_stage" in mlflow_view_text and "Train LightGBM" in train_text, "views/8_MLflow_Experiments.py + src/models/train.py")
+check("Fast manual experiment logging", "log_model_artifact=False" in train_text, "manual MLflow runs skip non-promotable model serialization")
 
 failed = False
 for name, ok, detail in checks:

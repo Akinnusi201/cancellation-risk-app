@@ -135,33 +135,109 @@ def _fit_and_log(
     run_source,
     model_type,
     progress_callback=None,
+    stage_callback=None,
+    log_model_artifact=True,
+    extra_run_params=None,
 ):
+    """Fit one experiment and log its evidence to MLflow.
+
+    ``progress_callback`` keeps the original coarse 0-100 contract used by ModelOps.
+    ``stage_callback`` is a richer UI contract used by the manual experiment page:
+    ``stage_callback(stage_key, stage_progress_0_to_1, title, description)``.
+
+    Manual exploratory runs can skip full model serialization because they cannot be
+    promoted from the MLflow Experiments page. Candidate runs keep the model artifact.
+    """
+
     def progress(step, message):
         if progress_callback:
             progress_callback(step, message)
 
+    def stage(key, fraction, title, description):
+        if stage_callback:
+            stage_callback(key, max(0.0, min(1.0, float(fraction))), title, description)
+
     display_name = "Logistic Regression" if model_type == "logistic_regression" else "LightGBM"
-    progress(5, f"Preparing MLflow experiment for {display_name}")
+
+    progress(4, f"Preparing MLflow experiment for {display_name}")
+    stage("tracking", 0.10, "Initialize experiment tracking", "Connecting to the local MLflow tracking store and creating the experiment run.")
     _setup_mlflow()
+    stage("tracking", 1.0, "Initialize experiment tracking", "MLflow tracking is ready.")
+
     progress(10, "Creating temporal train / validation / test splits")
+    stage("split", 0.10, "Prepare temporal split", "Sorting orders by creation time and separating train, validation, and test periods.")
     train_df, val_df, test_df = temporal_split(snapshot)
     Xtr, ytr = get_model_frame(train_df)
     Xv, yv = get_model_frame(val_df)
     Xt, yt = get_model_frame(test_df)
     if min(ytr.nunique(), yv.nunique(), yt.nunique()) < 2:
         raise ValueError("Each temporal split must contain both classes. Add more data before training.")
+    stage(
+        "split",
+        1.0,
+        "Prepare temporal split",
+        f"Prepared {len(train_df):,} training, {len(val_df):,} validation, and {len(test_df):,} test orders.",
+    )
 
     with mlflow.start_run(run_name=run_name) as run:
-        pipe = Pipeline([("prep", logistic_preprocessor() if model_type == "logistic_regression" else preprocessor()), ("model", estimator)])
-        progress(20, f"Training {display_name}")
-        pipe.fit(Xtr, ytr)
+        prep = logistic_preprocessor() if model_type == "logistic_regression" else preprocessor()
+
+        # Fit/transform explicitly so the UI can report preprocessing independently
+        # from model fitting. The fitted objects are assembled into a sklearn Pipeline
+        # afterward, so the serialized candidate artifact behaves exactly as before.
+        progress(16, "Preparing model features")
+        stage("preprocess", 0.05, "Encode model features", "Fitting numeric imputers and categorical encoders on training data only.")
+        Xtr_t = prep.fit_transform(Xtr, ytr)
+        stage("preprocess", 0.60, "Encode model features", "Applying the fitted feature transformations to validation data.")
+        Xv_t = prep.transform(Xv)
+        stage("preprocess", 0.82, "Encode model features", "Applying the fitted feature transformations to the held-out test data.")
+        Xt_t = prep.transform(Xt)
+        stage("preprocess", 1.0, "Encode model features", "Feature preprocessing is complete with no outcome-derived fields used as predictors.")
+
+        progress(25, f"Training {display_name}")
+        stage("train", 0.0, f"Train {display_name}", "Fitting the model on the training period. The bar below follows actual training iterations.")
+
+        if model_type == "lightgbm":
+            total_estimators = max(1, int(getattr(estimator, "n_estimators", 1) or 1))
+            update_every = max(1, total_estimators // 30)
+
+            def _training_progress(env):
+                done = int(env.iteration - env.begin_iteration + 1)
+                total = max(1, int(env.end_iteration - env.begin_iteration))
+                if done == 1 or done == total or done % update_every == 0:
+                    stage(
+                        "train",
+                        done / total,
+                        "Train LightGBM",
+                        f"Building decision tree {done:,} of {total:,}. Each tree corrects errors from the previous ensemble.",
+                    )
+                    # Preserve the legacy global progress bar for other pages.
+                    progress(25 + int(35 * done / total), f"Training LightGBM tree {done}/{total}")
+
+            _training_progress.order = 20
+            _training_progress.before_iteration = False
+            estimator.fit(Xtr_t, ytr, callbacks=[_training_progress])
+        else:
+            estimator.fit(Xtr_t, ytr)
+            stage("train", 1.0, f"Train {display_name}", "Model fitting is complete.")
+            progress(60, f"{display_name} training complete")
+
+        pipe = Pipeline([("prep", prep), ("model", estimator)])
+
         progress(65, "Selecting the validation F1 threshold")
-        pv = pipe.predict_proba(Xv)[:, 1]
+        stage("validate", 0.20, "Tune decision threshold", "Scoring the validation period and searching for the probability threshold with the best F1 score.")
+        pv = estimator.predict_proba(Xv_t)[:, 1]
         threshold, _ = best_f1_threshold(yv, pv)
+        stage("validate", 0.65, "Tune decision threshold", f"Selected a decision threshold of {threshold:.1%}; calculating validation metrics.")
         vm = metrics(yv, pv, threshold)
+        stage("validate", 1.0, "Tune decision threshold", "Validation ROC-AUC, PR-AUC, calibration, precision, recall, and fixed-precision metrics are ready.")
+
         progress(72, "Evaluating the held-out test set")
-        pt = pipe.predict_proba(Xt)[:, 1]
+        stage("test", 0.25, "Evaluate held-out test period", "Scoring orders the model did not see during fitting or threshold selection.")
+        pt = estimator.predict_proba(Xt_t)[:, 1]
+        stage("test", 0.65, "Evaluate held-out test period", "Calculating ranking, calibration, precision, recall, and fixed-precision performance.")
         tm = metrics(yt, pt, threshold)
+        stage("test", 1.0, "Evaluate held-out test period", f"Test ROC-AUC {tm['roc_auc']:.3f}, PR-AUC {tm['pr_auc']:.3f}, Brier {tm['brier']:.3f}.")
 
         params = {
             f"model__{k}": v
@@ -176,28 +252,56 @@ def _fit_and_log(
             "train_rows": len(train_df),
             "validation_rows": len(val_df),
             "test_rows": len(test_df),
+            "model_artifact_logged": bool(log_model_artifact),
         })
+        if extra_run_params:
+            params.update({
+                str(k): v
+                for k, v in extra_run_params.items()
+                if isinstance(v, (str, int, float, bool, type(None)))
+            })
+
+        progress(78, "Logging metrics and parameters")
+        stage("mlflow_metrics", 0.12, "Log metrics to MLflow", "Writing parameters, metrics, and dataset split sizes to MLflow.")
         mlflow.log_params(params)
         mlflow.log_metrics(
             {f"val_{k}": v for k, v in vm.items()}
             | {f"test_{k}": v for k, v in tm.items()}
         )
+        stage("mlflow_metrics", 1.0, "Log metrics to MLflow", "Core experiment parameters and metrics are stored in MLflow.")
 
         evaluation_dir = ARTIFACT_DIR / dataset_version / model_type / run.info.run_id[:8]
         evaluation_dir.mkdir(parents=True, exist_ok=True)
-        progress(80, "Generating evaluation artifacts")
+        progress(82, "Generating evaluation artifacts")
+        stage("artifacts", 0.10, "Create evaluation artifacts", "Generating ROC, precision-recall, and calibration plots from the held-out test period.")
         plots = save_evaluation_plots(yt, pt, evaluation_dir, "test")
+        stage("artifacts", 0.62, "Create evaluation artifacts", "Calculating native model feature importance.")
         fi = native_feature_importance(pipe)
         fi_path = evaluation_dir / "feature_importance.csv"
         fi.to_csv(fi_path, index=False)
-        for p in [*plots.values(), str(fi_path)]:
-            mlflow.log_artifact(p)
-        mlflow.sklearn.log_model(
-            pipe,
-            "model",
-            serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
-        )
-        progress(88, f"{display_name} model and metrics logged")
+        stage("artifacts", 0.78, "Create evaluation artifacts", "Uploading evaluation plots and feature importance to the MLflow run.")
+        for artifact_path in [*plots.values(), str(fi_path)]:
+            mlflow.log_artifact(artifact_path)
+        stage("artifacts", 1.0, "Create evaluation artifacts", "Evaluation artifacts are stored with the run.")
+
+        # Full sklearn model serialization is useful for promotable candidates, but it
+        # is unnecessary overhead for manual tuning runs because this page never
+        # promotes them to production. Skipping it makes the live demo much faster.
+        if log_model_artifact:
+            progress(90, f"Serializing {display_name} model artifact")
+            stage("finalize", 0.35, "Finalize MLflow run", "Serializing the fitted preprocessing + model pipeline for candidate governance and promotion.")
+            mlflow.sklearn.log_model(
+                pipe,
+                "model",
+                serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
+            )
+            stage("finalize", 0.85, "Finalize MLflow run", "Model artifact uploaded. Finalizing the MLflow run.")
+        else:
+            progress(94, "Finalizing metric-only exploratory run")
+            stage("finalize", 0.80, "Finalize MLflow run", "Manual experiment: full model serialization is skipped for speed because promotion is disabled on this page.")
+
+        stage("finalize", 1.0, "Finalize MLflow run", "MLflow run finalized successfully.")
+        progress(100, "Experiment complete")
 
     return {
         "model_name": model_type,
@@ -506,7 +610,15 @@ def train_all(snapshot, dataset_version, promote=True, run_source="automatic_bat
     }
 
 
-def run_manual_experiment(snapshot, dataset_version, experiment_name="manual_lightgbm", progress_callback=None, **params):
+def run_manual_experiment(
+    snapshot,
+    dataset_version,
+    experiment_name="manual_lightgbm",
+    progress_callback=None,
+    stage_callback=None,
+    run_metadata=None,
+    **params,
+):
     estimator = lightgbm_model(**params)
     result = _fit_and_log(
         snapshot,
@@ -516,5 +628,13 @@ def run_manual_experiment(snapshot, dataset_version, experiment_name="manual_lig
         "manual",
         "lightgbm",
         progress_callback=progress_callback,
+        stage_callback=stage_callback,
+        log_model_artifact=False,
+        extra_run_params=run_metadata,
     )
-    return {"run_id": result["run_id"], "threshold": result["threshold"], "val": result["val"], "test": result["test"]}
+    return {
+        "run_id": result["run_id"],
+        "threshold": result["threshold"],
+        "val": result["val"],
+        "test": result["test"],
+    }
