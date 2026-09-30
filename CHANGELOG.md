@@ -1,5 +1,13 @@
 # Changelog
 
+
+## v3.8 - USD rolling-upgrade compatibility
+
+- Removed hard imports of new currency helpers from `src/ui/common.py` across Operations Dashboard, Score Order, Decision History, and Model Monitoring.
+- Added page-level fallbacks to `src.currency` so an older `common.py` cannot crash a partially upgraded Streamlit deployment.
+- Kept business assumptions USD-facing even when the deployed shared UI module is older.
+- Added regression coverage and repository verification for mixed-version USD deployments.
+
 ## v3.6 - Clearer business and economic language
 - Replaced abstract UI terms such as intervention effectiveness and false-intervention friction with plain operational language.
 - Reframed the decision as a simple question: is verifying this order expected to save more money than it costs?

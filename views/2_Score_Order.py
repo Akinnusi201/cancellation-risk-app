@@ -6,21 +6,115 @@ import pandas as pd
 import streamlit as st
 
 from src.auth import require_role
+from src.business import load_policy
 from src.features.inference_features import prepare_order_features
 from src.models.predict import record_decision, score_batch, score_order
 from src.config import ARTIFACT_DIR
 from src.models.registry import active_metadata
 from src.ui import common as ui_common
+from src.currency import fetch_pkr_to_usd_rate, format_usd, pkr_to_usd, rate_summary, usd_to_pkr
 
-# Import the stable helpers through the module instead of a direct symbol list.
-# This keeps the page usable during rolling/partial upgrades where an older
-# src/ui/common.py may still be present in the deployed checkout.
-FEATURE_LABELS = ui_common.FEATURE_LABELS
-business_policy_controls = ui_common.business_policy_controls
-load_demo_orders = ui_common.load_demo_orders
-load_reference = ui_common.load_reference
-get_currency_context = ui_common.get_currency_context
-currency_caption = ui_common.currency_caption
+# Import stable helpers through the module, but never assume that optional USD
+# helpers exist. Streamlit Cloud can briefly serve a mixed checkout during an
+# upgrade, so this page owns safe fallbacks for every new presentation helper.
+FEATURE_LABELS = getattr(ui_common, "FEATURE_LABELS", {
+    "customer_cancel_rate": "Prior customer cancellation rate",
+    "is_cod": "Cash-on-delivery payment",
+    "grand_total": "Order value",
+    "discount_ratio": "Discount ratio",
+    "price": "Average item price",
+    "qty_ordered": "Quantity",
+    "payment_method": "Payment method",
+    "category_name_1": "Product category",
+    "discount_amount": "Discount amount",
+    "hour": "Order hour",
+    "day_of_week": "Day of week",
+    "has_discount": "Discount presence",
+})
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fallback_currency_context():
+    return fetch_pkr_to_usd_rate()
+
+
+def currency_caption():
+    helper = getattr(ui_common, "currency_caption", None)
+    if callable(helper):
+        return helper()
+    fx = _fallback_currency_context()
+    if fx.get("is_live"):
+        st.caption(rate_summary(fx) + ". Refreshed automatically up to once per hour. Model features remain in PKR internally; only user-facing money is shown in USD.")
+    else:
+        st.warning(rate_summary(fx) + ". Live FX lookup is unavailable, so the packaged fallback rate is being used.")
+    return fx
+
+
+def _load_csv_artifact(filename):
+    path = ARTIFACT_DIR / filename
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path, low_memory=False, parse_dates=["created_at"])
+
+
+def load_reference():
+    helper = getattr(ui_common, "load_reference", None)
+    return helper() if callable(helper) else _load_csv_artifact("reference_orders.csv.gz")
+
+
+def load_demo_orders():
+    helper = getattr(ui_common, "load_demo_orders", None)
+    return helper() if callable(helper) else _load_csv_artifact("demo_orders.csv.gz")
+
+
+def business_policy_controls(key_prefix="policy"):
+    # Use the shared USD control only when the deployed common module is new
+    # enough to include its currency context. Otherwise render the same controls
+    # locally so an older common.py cannot break or revert the page to PKR.
+    shared = getattr(ui_common, "business_policy_controls", None)
+    shared_fx = getattr(ui_common, "get_currency_context", None)
+    if callable(shared) and callable(shared_fx):
+        return shared(key_prefix)
+
+    defaults = load_policy()
+    fx = _fallback_currency_context()
+    rate = float(fx["rate"])
+    with st.expander("Business assumptions for verification", expanded=False):
+        st.caption("These assumptions do not change cancellation risk. They only decide whether verifying an order is expected to save money.")
+        st.caption(rate_summary(fx))
+        c1, c2 = st.columns(2)
+        avoidable_usd = c1.number_input(
+            "Loss if a canceled order reaches fulfillment ($)", min_value=0.0,
+            value=round(float(pkr_to_usd(defaults["avoidable_fulfillment_cost"], rate)), 2), step=0.50,
+            key=f"{key_prefix}_avoidable_usd",
+        )
+        prevention_pct = c2.slider(
+            "Loss prevented by verification (%)", 0, 100,
+            int(round(float(defaults["intervention_effectiveness"]) * 100)), 5,
+            key=f"{key_prefix}_effectiveness_pct",
+        )
+        c3, c4 = st.columns(2)
+        intervention_usd = c3.number_input(
+            "Cost to verify one order ($)", min_value=0.0,
+            value=round(float(pkr_to_usd(defaults["intervention_cost"], rate)), 2), step=0.25,
+            key=f"{key_prefix}_intervention_usd",
+        )
+        unnecessary_usd = c4.number_input(
+            "Extra cost if a good order is verified ($)", min_value=0.0,
+            value=round(float(pkr_to_usd(defaults["false_positive_friction_cost"], rate)), 2), step=0.25,
+            key=f"{key_prefix}_unnecessary_usd",
+        )
+        prevented = avoidable_usd * (prevention_pct / 100.0)
+        st.info(
+            f"If the order would cancel, verification can prevent about **${prevented:,.2f}** of loss. "
+            f"Every verification costs **${intervention_usd:,.2f}**, and an unnecessary verification adds **${unnecessary_usd:,.2f}**."
+        )
+    return {
+        "avoidable_fulfillment_cost": float(usd_to_pkr(avoidable_usd, rate)),
+        "intervention_effectiveness": prevention_pct / 100.0,
+        "intervention_cost": float(usd_to_pkr(intervention_usd, rate)),
+        "false_positive_friction_cost": float(usd_to_pkr(unnecessary_usd, rate)),
+    }
 
 
 def load_historical_demo_orders():
@@ -72,8 +166,8 @@ def show_score(sc, row):
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Cancellation Risk", f"{sc['probability']:.1%}")
     c2.metric("Risk Level", sc["risk_level"])
-    c3.metric("Expected Money Saved", ui_common.format_usd(sc["expected_avoidable_cost"], fx_rate))
-    c4.metric("Expected Net Savings", ui_common.format_usd(sc["net_expected_savings"], fx_rate))
+    c3.metric("Expected Money Saved", format_usd(sc["expected_avoidable_cost"], fx_rate))
+    c4.metric("Expected Net Savings", format_usd(sc["net_expected_savings"], fx_rate))
 
     if verify:
         st.warning(f"Recommended action: **{action}**")
@@ -85,7 +179,7 @@ def show_score(sc, row):
     unnecessary_cost = float(policy_used.get("false_positive_friction_cost", 0.0))
     st.caption(
         f"Why: the app compares the expected cost prevented with the expected cost of verification. "
-        f"A verification costs {ui_common.format_usd(verify_cost, fx_rate)}; if the order would have completed normally, the model also allows {ui_common.format_usd(unnecessary_cost, fx_rate)} for unnecessary delay/service effort."
+        f"A verification costs {format_usd(verify_cost, fx_rate)}; if the order would have completed normally, the model also allows {format_usd(unnecessary_cost, fx_rate)} for unnecessary delay/service effort."
     )
 
     latency = sc.get("latency_ms")
@@ -140,10 +234,10 @@ with tabs[0]:
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Order ID", str(row.iloc[0]["order_id"]))
-        c2.metric("Order Value", ui_common.format_usd(row.iloc[0]["grand_total"], fx_rate))
+        c2.metric("Order Value", format_usd(row.iloc[0]["grand_total"], fx_rate))
         c3.metric("Quantity", f"{row.iloc[0]['qty_ordered']:,.0f}")
         c4.metric("Payment", str(row.iloc[0]["payment_method"]))
-        st.caption(f"Category: {row.iloc[0]['category_name_1']} • Discount: {ui_common.format_usd(row.iloc[0]['discount_amount'], fx_rate)} • Prior cancellation rate: {row.iloc[0]['customer_cancel_rate']:.1%}")
+        st.caption(f"Category: {row.iloc[0]['category_name_1']} • Discount: {format_usd(row.iloc[0]['discount_amount'], fx_rate)} • Prior cancellation rate: {row.iloc[0]['customer_cancel_rate']:.1%}")
         show_score(sc, row)
 
         b1, b2 = st.columns(2)
@@ -177,7 +271,7 @@ with tabs[1]:
     with st.form("manual_order"):
         a, b, c = st.columns(3)
         order_id = a.text_input("Order ID", value=f"manual_{datetime.now().strftime('%H%M%S')}")
-        default_order_usd = round(float(ui_common.pkr_to_usd(1500.0, fx_rate)), 2)
+        default_order_usd = round(float(pkr_to_usd(1500.0, fx_rate)), 2)
         price_usd = b.number_input("Average item price ($)", min_value=0.0, value=default_order_usd, step=0.50)
         qty = c.number_input("Quantity", min_value=1.0, value=1.0, step=1.0)
         d, e, f = st.columns(3)
@@ -192,10 +286,10 @@ with tabs[1]:
         manual = prepare_order_features(pd.DataFrame([{
             "order_id": order_id,
             "created_at": datetime.now(),
-            "price": float(ui_common.usd_to_pkr(price_usd, fx_rate)),
+            "price": float(usd_to_pkr(price_usd, fx_rate)),
             "qty_ordered": qty,
-            "grand_total": float(ui_common.usd_to_pkr(grand_total_usd, fx_rate)),
-            "discount_amount": float(ui_common.usd_to_pkr(discount_usd, fx_rate)),
+            "grand_total": float(usd_to_pkr(grand_total_usd, fx_rate)),
+            "discount_amount": float(usd_to_pkr(discount_usd, fx_rate)),
             "payment_method": payment,
             "category_name_1": category,
             "customer_cancel_rate": prior,
@@ -207,8 +301,8 @@ with tabs[2]:
     st.subheader("Batch scoring")
     st.caption("Upload one row per order. Outcome/status fields are not required and are ignored for inference. Dollar inputs are converted to PKR internally before model scoring.")
     template = pd.DataFrame([{
-        "order_id": "NEW-1001", "created_at": "2026-09-29 14:30:00", "price": round(float(ui_common.pkr_to_usd(1500, fx_rate)), 2),
-        "qty_ordered": 1, "grand_total": round(float(ui_common.pkr_to_usd(1500, fx_rate)), 2), "discount_amount": 0, "payment_method": "cod",
+        "order_id": "NEW-1001", "created_at": "2026-09-29 14:30:00", "price": round(float(pkr_to_usd(1500, fx_rate)), 2),
+        "qty_ordered": 1, "grand_total": round(float(pkr_to_usd(1500, fx_rate)), 2), "discount_amount": 0, "payment_method": "cod",
         "category_name_1": "Men's Fashion", "customer_cancel_rate": 0.10,
     }])
     st.download_button("Download USD batch template", template.to_csv(index=False).encode(), "prediction_batch_template_usd.csv", "text/csv")
@@ -236,8 +330,8 @@ with tabs[2]:
                 "recommendation": "Recommended action",
             })
             display["Cancellation risk"] = display["Cancellation risk"].map(lambda x: f"{x:.1%}")
-            display["Expected money saved ($)"] = display["Expected money saved ($)"].map(lambda x: ui_common.format_usd(x, fx_rate))
-            display["Expected net savings ($)"] = display["Expected net savings ($)"].map(lambda x: ui_common.format_usd(x, fx_rate))
+            display["Expected money saved ($)"] = display["Expected money saved ($)"].map(lambda x: format_usd(x, fx_rate))
+            display["Expected net savings ($)"] = display["Expected net savings ($)"].map(lambda x: format_usd(x, fx_rate))
             display["Recommended action"] = display["Recommended action"].replace({
                 "Hold for Verification": "Verify before fulfillment",
                 "Approve for Fulfillment": "Release to fulfillment",
@@ -246,7 +340,7 @@ with tabs[2]:
             export = scored.copy()
             for money_col in ["price", "grand_total", "discount_amount", "expected_avoidable_cost", "expected_false_positive_cost", "net_expected_savings"]:
                 if money_col in export.columns:
-                    export[money_col] = export[money_col].map(lambda x: float(ui_common.pkr_to_usd(x, fx_rate)) if pd.notna(x) else x)
+                    export[money_col] = export[money_col].map(lambda x: float(pkr_to_usd(x, fx_rate)) if pd.notna(x) else x)
             export = export.rename(columns={
                 "price": "price_usd",
                 "grand_total": "grand_total_usd",

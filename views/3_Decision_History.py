@@ -2,7 +2,25 @@ import streamlit as st
 
 from src.auth import require_role
 from src.database.duckdb_manager import dataframe
-from src.ui.common import currency_caption
+from src.ui import common as ui_common
+from src.currency import fetch_pkr_to_usd_rate, rate_summary
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fallback_currency_context():
+    return fetch_pkr_to_usd_rate()
+
+
+def currency_caption():
+    helper = getattr(ui_common, "currency_caption", None)
+    if callable(helper):
+        return helper()
+    fx = _fallback_currency_context()
+    if fx.get("is_live"):
+        st.caption(rate_summary(fx) + ". Refreshed automatically up to once per hour.")
+    else:
+        st.warning(rate_summary(fx) + ". Live FX lookup is unavailable, so the packaged fallback rate is being used.")
+    return fx
+
 
 require_role("manager")
 st.title("🧾 Decision History")

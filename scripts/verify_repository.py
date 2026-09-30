@@ -13,6 +13,8 @@ predict_text = (ROOT / "src/models/predict.py").read_text()
 business_text = (ROOT / "src/business.py").read_text()
 score_text = (ROOT / "views/2_Score_Order.py").read_text()
 monitor_text = (ROOT / "views/7_Model_Monitoring.py").read_text()
+dashboard_text = (ROOT / "views/1_Operations_Dashboard.py").read_text()
+history_text = (ROOT / "views/3_Decision_History.py").read_text()
 monitor_metrics_text = (ROOT / "src/monitoring/metrics.py").read_text()
 currency_text = (ROOT / "src/currency.py").read_text() if (ROOT / "src/currency.py").exists() else ""
 ui_common_text = (ROOT / "src/ui/common.py").read_text()
@@ -38,6 +40,7 @@ check("Minimum drift sample guard", "MIN_MONITORING_OBSERVATIONS = 100" in monit
 check("Batch prediction telemetry", '"batch"' in predict_text and "executemany" in predict_text, "batch predictions are persisted for production monitoring")
 check("Live PKR to USD conversion", "api.frankfurter.dev" in currency_text and "providers/sbp" in currency_text, "src/currency.py")
 check("USD display with PKR model compatibility", "usd_to_pkr" in score_text and "get_currency_context" in ui_common_text, "operations UI uses USD while inference remains in PKR")
+check("USD rolling-upgrade compatibility", all(x not in dashboard_text + history_text + monitor_text for x in ["from src.ui.common import currency_caption", "from src.ui.common import FEATURE_LABELS"]) and "ui_common.get_currency_context" not in score_text and "getattr(ui_common, \"currency_caption\", None)" in score_text, "USD pages tolerate an older src/ui/common.py")
 
 failed = False
 for name, ok, detail in checks:

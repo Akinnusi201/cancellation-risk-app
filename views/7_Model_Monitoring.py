@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.auth import require_role
+from src.business import load_policy
 try:
     from src.business import evaluate_business_policy
 except ImportError:
@@ -21,8 +22,91 @@ from src.monitoring.metrics import (
     population_stability_index,
     runtime_prediction_summary,
 )
-from src.ui.common import FEATURE_LABELS, business_policy_controls, currency_caption, load_reference
-from src.currency import format_usd
+from src.ui import common as ui_common
+from src.currency import fetch_pkr_to_usd_rate, format_usd, pkr_to_usd, rate_summary, usd_to_pkr
+
+FEATURE_LABELS = getattr(ui_common, "FEATURE_LABELS", {
+    "customer_cancel_rate": "Prior customer cancellation rate",
+    "is_cod": "Cash-on-delivery payment",
+    "grand_total": "Order value",
+    "discount_ratio": "Discount ratio",
+    "price": "Average item price",
+    "qty_ordered": "Quantity",
+    "payment_method": "Payment method",
+    "category_name_1": "Product category",
+    "discount_amount": "Discount amount",
+    "hour": "Order hour",
+    "day_of_week": "Day of week",
+    "has_discount": "Discount presence",
+})
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fallback_currency_context():
+    return fetch_pkr_to_usd_rate()
+
+
+def currency_caption():
+    helper = getattr(ui_common, "currency_caption", None)
+    if callable(helper):
+        return helper()
+    fx = _fallback_currency_context()
+    if fx.get("is_live"):
+        st.caption(rate_summary(fx) + ". Refreshed automatically up to once per hour. Model features remain in PKR internally; only user-facing money is shown in USD.")
+    else:
+        st.warning(rate_summary(fx) + ". Live FX lookup is unavailable, so the packaged fallback rate is being used.")
+    return fx
+
+
+def load_reference():
+    helper = getattr(ui_common, "load_reference", None)
+    if callable(helper):
+        return helper()
+    path = ARTIFACT_DIR / "reference_orders.csv.gz"
+    return pd.read_csv(path, low_memory=False, parse_dates=["created_at"]) if path.exists() else pd.DataFrame()
+
+
+def business_policy_controls(key_prefix="policy"):
+    shared = getattr(ui_common, "business_policy_controls", None)
+    shared_fx = getattr(ui_common, "get_currency_context", None)
+    if callable(shared) and callable(shared_fx):
+        return shared(key_prefix)
+
+    defaults = load_policy()
+    fx = _fallback_currency_context()
+    rate = float(fx["rate"])
+    with st.expander("Business assumptions for verification", expanded=False):
+        st.caption("These assumptions do not change cancellation risk. They only decide whether verifying an order is expected to save money.")
+        st.caption(rate_summary(fx))
+        c1, c2 = st.columns(2)
+        avoidable_usd = c1.number_input(
+            "Loss if a canceled order reaches fulfillment ($)", min_value=0.0,
+            value=round(float(pkr_to_usd(defaults["avoidable_fulfillment_cost"], rate)), 2), step=0.50,
+            key=f"{key_prefix}_avoidable_usd",
+        )
+        prevention_pct = c2.slider(
+            "Loss prevented by verification (%)", 0, 100,
+            int(round(float(defaults["intervention_effectiveness"]) * 100)), 5,
+            key=f"{key_prefix}_effectiveness_pct",
+        )
+        c3, c4 = st.columns(2)
+        intervention_usd = c3.number_input(
+            "Cost to verify one order ($)", min_value=0.0,
+            value=round(float(pkr_to_usd(defaults["intervention_cost"], rate)), 2), step=0.25,
+            key=f"{key_prefix}_intervention_usd",
+        )
+        unnecessary_usd = c4.number_input(
+            "Extra cost if a good order is verified ($)", min_value=0.0,
+            value=round(float(pkr_to_usd(defaults["false_positive_friction_cost"], rate)), 2), step=0.25,
+            key=f"{key_prefix}_unnecessary_usd",
+        )
+    return {
+        "avoidable_fulfillment_cost": float(usd_to_pkr(avoidable_usd, rate)),
+        "intervention_effectiveness": prevention_pct / 100.0,
+        "intervention_cost": float(usd_to_pkr(intervention_usd, rate)),
+        "false_positive_friction_cost": float(usd_to_pkr(unnecessary_usd, rate)),
+    }
+
 
 require_role("developer")
 st.title("📈 Model Monitoring")
