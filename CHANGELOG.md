@@ -62,3 +62,13 @@
 - Cached immutable dataset-version loading between experiments.
 - Manual MLflow experiments now skip full model serialization because they cannot be promoted from that page; ModelOps candidates still log promotable model artifacts.
 - Added explicit 100% completion and elapsed-time reporting so successful runs no longer appear stuck at 88%.
+
+## v3.3 - Runtime hardening and simulation integrity
+- Isolated Streamlit/MLflow progress callbacks from LightGBM hyperparameters to prevent callback serialization crashes.
+- Manual experiment hyperparameters now use an explicit backend contract instead of forwarding arbitrary keyword arguments.
+- Fast-demo experiments use up to 60,000 temporally distributed orders and skip plot rendering for faster live iteration.
+- Split Operations simulation into a risk-stratified live queue and a natural historical holdout queue.
+- Live simulation uses real historical rows selected by predicted risk bands; labels and probabilities are never altered.
+- Candidate promotion now carries both live and historical simulation artifacts forward.
+- Added packaged simulation integrity tests and callback-isolation regression coverage.
+- Added a visible GitHub Actions recovery template and clearer repair instructions when `.github` is not committed.

@@ -9,7 +9,13 @@ from src.auth import require_role
 from src.features.inference_features import prepare_order_features
 from src.models.predict import record_decision, score_batch, score_order
 from src.models.registry import active_metadata
-from src.ui.common import FEATURE_LABELS, business_policy_controls, load_demo_orders, load_reference
+from src.ui.common import (
+    FEATURE_LABELS,
+    business_policy_controls,
+    load_demo_orders,
+    load_historical_demo_orders,
+    load_reference,
+)
 
 require_role("manager")
 st.title("🛒 Score Order")
@@ -61,24 +67,40 @@ def show_score(sc, row):
 
 
 with tabs[0]:
-    demo = load_demo_orders()
+    mode = st.radio(
+        "Simulation mode",
+        ["Live Operations Simulation", "Historical Evaluation"],
+        horizontal=True,
+        help="Live mode uses a risk-stratified demo queue and hides outcomes. Historical Evaluation uses a natural sample of the final temporal holdout and reveals the outcome only after a decision.",
+    )
+
+    if mode == "Live Operations Simulation":
+        demo = load_demo_orders()
+        st.info(
+            "Live simulation is deliberately stratified across low, medium, and high model-risk orders so managers see a useful mix of decisions. "
+            "It is a demo queue, not an estimate of the historical cancellation prevalence."
+        )
+        index_key = "live_queue_index"
+        scoring_mode = "simulation_live"
+    else:
+        demo = load_historical_demo_orders()
+        st.caption(
+            "Historical Evaluation uses a natural sample from the final temporal holdout. Its cancellation prevalence is intentionally left unchanged."
+        )
+        index_key = "historical_queue_index"
+        scoring_mode = "simulation_historical"
+
     if demo.empty:
         st.warning("The packaged simulation queue is unavailable.")
     else:
-        mode = st.radio(
-            "Simulation mode",
-            ["Live Operations Simulation", "Historical Evaluation"],
-            horizontal=True,
-            help="Live mode never reveals the historical target. Historical Evaluation reveals it only after a manager decision.",
-        )
-        if "queue_index" not in st.session_state:
-            st.session_state.queue_index = 0
-        idx = st.session_state.queue_index % len(demo)
+        if index_key not in st.session_state:
+            st.session_state[index_key] = 0
+        idx = st.session_state[index_key] % len(demo)
         row = demo.iloc[[idx]].copy()
         score_key = f"sim_score_{idx}_{mode}_{policy}"
         if st.session_state.get("sim_score_key") != score_key:
             st.session_state.sim_score_key = score_key
-            st.session_state.current_score = _score_order_compat(row, reference, policy, 'simulation')
+            st.session_state.current_score = _score_order_compat(row, reference, policy, scoring_mode)
             st.session_state.decision_made = False
         sc = st.session_state.current_score
 
@@ -109,7 +131,7 @@ with tabs[0]:
             else:
                 st.info("Decision recorded. The outcome remains hidden in Live Operations Simulation mode.")
             if st.button("Next Incoming Order →", type="primary"):
-                st.session_state.queue_index += 1
+                st.session_state[index_key] += 1
                 st.session_state.current_score = None
                 st.session_state.decision_made = False
                 st.rerun()

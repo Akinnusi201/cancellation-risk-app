@@ -26,6 +26,7 @@ from src.config import ORDER_ID_CANDIDATES
 from src.features.build_features import get_model_frame
 from src.models.evaluate import best_f1_threshold, metrics
 from src.monitoring.plots import save_evaluation_plots
+from src.simulation import build_balanced_live_queue
 
 
 def temporal_split(df, train_frac=.70, val_frac=.15):
@@ -186,11 +187,15 @@ def main(raw_csv):
         "note": "Logistic Regression baseline uses the same temporal split and features; numeric inputs are standardized."
     }, indent=2))
 
-    # Reference sample is drawn from training history; demo queue comes from the final holdout.
+    # Reference sample is drawn from training history. Historical evaluation keeps
+    # the natural final-holdout prevalence; live simulation is stratified by model
+    # risk so the Operations demo contains meaningful low/medium/high decisions.
     reference = train_df.sample(n=min(20000, len(train_df)), random_state=RANDOM_STATE)
-    demo = test_df.sample(n=min(2500, len(test_df)), random_state=RANDOM_STATE)
+    historical_demo = test_df.sample(n=min(2500, len(test_df)), random_state=RANDOM_STATE)
+    live_demo = build_balanced_live_queue(test_df, pt, max_rows=min(2400, len(test_df)))
     reference.to_csv(artifacts / "reference_orders.csv.gz", index=False, compression="gzip")
-    demo.to_csv(artifacts / "demo_orders.csv.gz", index=False, compression="gzip")
+    historical_demo.to_csv(artifacts / "historical_demo_orders.csv.gz", index=False, compression="gzip")
+    live_demo.to_csv(artifacts / "demo_orders.csv.gz", index=False, compression="gzip")
 
     (artifacts / "business_policy.json").write_text(json.dumps({
         "avoidable_fulfillment_cost": 2000.0,

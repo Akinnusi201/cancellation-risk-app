@@ -30,6 +30,7 @@ from src.features.build_features import get_model_frame
 from src.models.evaluate import best_f1_threshold, metrics
 from src.models.registry import save_production_model
 from src.monitoring.plots import save_evaluation_plots
+from src.simulation import build_balanced_live_queue
 
 warnings.filterwarnings("ignore")
 
@@ -76,6 +77,15 @@ def logistic_preprocessor():
 def lightgbm_model(**overrides):
     if LGBMClassifier is None:
         raise RuntimeError("LightGBM is not installed. Install dependencies from requirements.txt.")
+    internal_keys = {"stage_callback", "progress_callback", "run_metadata", "experiment_name", "log_evaluation_plots"}
+    leaked = sorted(internal_keys.intersection(overrides))
+    if leaked:
+        raise TypeError(
+            "Internal experiment controls cannot be passed as LightGBM parameters: " + ", ".join(leaked)
+        )
+    callable_params = sorted(k for k, v in overrides.items() if callable(v))
+    if callable_params:
+        raise TypeError("Callable values are not valid LightGBM hyperparameters: " + ", ".join(callable_params))
     params = dict(
         n_estimators=150,
         learning_rate=0.05,
@@ -138,6 +148,7 @@ def _fit_and_log(
     stage_callback=None,
     log_model_artifact=True,
     extra_run_params=None,
+    log_evaluation_plots=True,
 ):
     """Fit one experiment and log its evidence to MLflow.
 
@@ -274,8 +285,12 @@ def _fit_and_log(
         evaluation_dir.mkdir(parents=True, exist_ok=True)
         progress(82, "Generating evaluation artifacts")
         stage("artifacts", 0.10, "Create evaluation artifacts", "Generating ROC, precision-recall, and calibration plots from the held-out test period.")
-        plots = save_evaluation_plots(yt, pt, evaluation_dir, "test")
-        stage("artifacts", 0.62, "Create evaluation artifacts", "Calculating native model feature importance.")
+        plots = {}
+        if log_evaluation_plots:
+            plots = save_evaluation_plots(yt, pt, evaluation_dir, "test")
+            stage("artifacts", 0.62, "Create evaluation artifacts", "Evaluation plots are ready; calculating native model feature importance.")
+        else:
+            stage("artifacts", 0.62, "Create evaluation artifacts", "Fast demo mode skips plot rendering; calculating native model feature importance instead.")
         fi = native_feature_importance(pipe)
         fi_path = evaluation_dir / "feature_importance.csv"
         fi.to_csv(fi_path, index=False)
@@ -412,9 +427,15 @@ def train_candidate(
         result["train_df"].sample(
             n=min(20000, len(result["train_df"])), random_state=RANDOM_STATE
         ).to_csv(reference_path, index=False, compression="gzip")
-        result["test_df"].sample(
+        historical_demo_path = out / "historical_demo_orders.csv.gz"
+        historical_demo = result["test_df"].sample(
             n=min(2500, len(result["test_df"])), random_state=RANDOM_STATE
-        ).to_csv(demo_path, index=False, compression="gzip")
+        )
+        historical_demo.to_csv(historical_demo_path, index=False, compression="gzip")
+        live_demo = build_balanced_live_queue(
+            result["test_df"], result["test_probabilities"], max_rows=min(2400, len(result["test_df"]))
+        )
+        live_demo.to_csv(demo_path, index=False, compression="gzip")
         pd.DataFrame({
             "order_id": result["test_df"]["order_id"].astype(str).to_numpy(),
             "is_canceled": result["test_df"]["is_canceled"].astype(int).to_numpy(),
@@ -435,6 +456,7 @@ def train_candidate(
             "test_predictions_path": str(predictions_path),
             "reference_path": str(reference_path),
             "demo_path": str(demo_path),
+            "historical_demo_path": str(historical_demo_path),
             "evaluation_dir": str(result["evaluation_dir"]),
             "model_params": {
                 k: v
@@ -528,6 +550,9 @@ def promote_candidate(candidate_id):
     demo_path = candidate.get("demo_path")
     if demo_path and Path(demo_path).exists():
         shutil.copy2(demo_path, ARTIFACT_DIR / "demo_orders.csv.gz")
+    historical_demo_path = candidate.get("historical_demo_path")
+    if historical_demo_path and Path(historical_demo_path).exists():
+        shutil.copy2(historical_demo_path, ARTIFACT_DIR / "historical_demo_orders.csv.gz")
 
     baseline = candidate.get("baseline") or {}
     if baseline:
@@ -617,9 +642,22 @@ def run_manual_experiment(
     progress_callback=None,
     stage_callback=None,
     run_metadata=None,
-    **params,
+    n_estimators=70,
+    learning_rate=0.05,
+    num_leaves=31,
+    log_evaluation_plots=True,
 ):
-    estimator = lightgbm_model(**params)
+    """Run a non-promotable LightGBM experiment.
+
+    UI callbacks are explicit wrapper arguments and can never leak into LightGBM
+    estimator parameters. Keeping the model hyperparameters explicit also gives a
+    clearer failure mode if the experiment page and backend ever drift apart.
+    """
+    estimator = lightgbm_model(
+        n_estimators=int(n_estimators),
+        learning_rate=float(learning_rate),
+        num_leaves=int(num_leaves),
+    )
     result = _fit_and_log(
         snapshot,
         dataset_version,
@@ -631,6 +669,7 @@ def run_manual_experiment(
         stage_callback=stage_callback,
         log_model_artifact=False,
         extra_run_params=run_metadata,
+        log_evaluation_plots=bool(log_evaluation_plots),
     )
     return {
         "run_id": result["run_id"],
@@ -638,3 +677,4 @@ def run_manual_experiment(
         "val": result["val"],
         "test": result["test"],
     }
+

@@ -27,7 +27,7 @@ def _cached_snapshot(path_text: str, modified_ns: int):
     return read_snapshot(Path(path_text))
 
 
-def _temporal_demo_sample(snapshot: pd.DataFrame, max_rows: int = 90_000) -> pd.DataFrame:
+def _temporal_demo_sample(snapshot: pd.DataFrame, max_rows: int = 60_000) -> pd.DataFrame:
     """Deterministically thin the timeline for a responsive live experiment.
 
     We sample evenly across the complete time-ordered dataset instead of taking only
@@ -55,14 +55,14 @@ scope = st.radio(
     ["Fast demo", "Full dataset"],
     horizontal=True,
     help=(
-        "Fast demo uses a deterministic 90,000-order sample spread across the full timeline. "
+        "Fast demo uses a deterministic 60,000-order sample spread across the full timeline. "
         "Full dataset uses every order in the selected version. Both are labeled in MLflow."
     ),
 )
 if scope == "Fast demo":
     st.info(
         "Fast demo mode is intended for live experimentation. It keeps the temporal structure but uses up to "
-        "90,000 orders. Use **Full dataset** when you want metrics for formal reporting."
+        "60,000 orders and skips plot rendering to keep the live experiment responsive. Use **Full dataset** when you want metrics and plots for formal reporting."
     )
 else:
     st.caption(f"Full-dataset experiment: {int(selected.order_count):,} order-level records.")
@@ -141,7 +141,7 @@ if st.button("Run MLflow Experiment", type="primary", use_container_width=True):
 
         source_rows = len(snapshot)
         if scope == "Fast demo":
-            snapshot = _temporal_demo_sample(snapshot, max_rows=90_000)
+            snapshot = _temporal_demo_sample(snapshot, max_rows=60_000)
         update_stage("load", 1.0, "Load dataset version", f"Experiment input contains {len(snapshot):,} orders from {source_rows:,} available records.")
 
         result = run_manual_experiment(
@@ -157,6 +157,7 @@ if st.button("Run MLflow Experiment", type="primary", use_container_width=True):
             n_estimators=int(n_estimators),
             learning_rate=float(learning_rate),
             num_leaves=int(num_leaves),
+            log_evaluation_plots=(scope == "Full dataset"),
         )
         finish_current_stage()
         elapsed = time.perf_counter() - started
@@ -164,7 +165,7 @@ if st.button("Run MLflow Experiment", type="primary", use_container_width=True):
             f"Experiment complete in **{elapsed:.1f} seconds**. MLflow run ID: `{result['run_id']}`"
         )
         if scope == "Fast demo":
-            st.caption("This run is labeled `fast_demo` in MLflow. Use Full dataset for final report metrics.")
+            st.caption("This run is labeled `fast_demo` in MLflow and skips evaluation-plot rendering for speed. Use Full dataset for final report metrics and plots.")
         st.json({"threshold": result["threshold"], "validation": result["val"], "test": result["test"]})
     except Exception as exc:
         finish_current_stage()

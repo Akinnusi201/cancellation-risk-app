@@ -177,3 +177,17 @@ python scripts/build_seed_artifacts.py "/path/to/Pakistan Largest Ecommerce Data
 ```
 
 This script is not called by Streamlit startup.
+
+### Simulation modes
+The Operations workspace has two intentionally different simulation modes. **Live Operations Simulation** is a deterministic, risk-stratified queue of real holdout orders (35% low predicted risk, 30% medium, 35% high) so a demo contains meaningful operational choices; it is not intended to estimate cancellation prevalence. **Historical Evaluation** is a natural sample of the final temporal holdout and preserves that period's actual class distribution.
+
+### If GitHub Actions is not detected
+The canonical workflow is `.github/workflows/ci.yml`. A visible recovery copy is also included as `GITHUB_ACTIONS_CI.yml` for cases where hidden folders were skipped during copying. From the repository root:
+
+```bash
+mkdir -p .github/workflows
+cp GITHUB_ACTIONS_CI.yml .github/workflows/ci.yml
+git add .github/workflows/ci.yml
+git commit -m "Add GitHub Actions CI"
+git push
+```

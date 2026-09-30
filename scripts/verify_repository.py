@@ -23,9 +23,12 @@ check("Score page compatibility", "_score_order_compat" in score_text, "views/2_
 check("Business evaluation functions", "def evaluate_business_policy" in business_text or (ROOT / "src/business_evaluation.py").exists(), "business evaluation module")
 check("Monitoring compatibility", "src.business_evaluation" in monitor_text, "views/7_Model_Monitoring.py")
 check("GitHub Actions workflow", bool(workflows), ".github/workflows/*.yml")
+check("Visible CI recovery template", (ROOT / "GITHUB_ACTIONS_CI.yml").exists(), "GITHUB_ACTIONS_CI.yml")
 check("Dockerfile", (ROOT / "Dockerfile").exists(), "Dockerfile")
 check("Stage-by-stage MLflow progress", "stage_callback=update_stage" in mlflow_view_text and "Train LightGBM" in train_text, "views/8_MLflow_Experiments.py + src/models/train.py")
 check("Fast manual experiment logging", "log_model_artifact=False" in train_text, "manual MLflow runs skip non-promotable model serialization")
+check("Callback isolation", "n_estimators=70" in train_text and "stage_callback=stage_callback" in train_text, "manual callbacks stay outside LightGBM hyperparameters")
+check("Balanced live simulation", (ROOT / "artifacts/demo_orders.csv.gz").exists() and (ROOT / "artifacts/historical_demo_orders.csv.gz").exists(), "separate live and historical queues")
 
 failed = False
 for name, ok, detail in checks:

@@ -18,6 +18,7 @@ workflow_files = []
 if workflow_dir.exists():
     workflow_files = sorted(list(workflow_dir.glob("*.yml")) + list(workflow_dir.glob("*.yaml")))
 dockerfile = ROOT / "Dockerfile"
+ci_template = ROOT / "GITHUB_ACTIONS_CI.yml"
 
 items = [
     ("Data Store", "Connected" if DB_PATH.exists() else "Ready on first use"),
@@ -41,7 +42,24 @@ c.metric("Packaged Inference Test", "Enabled" if (ROOT / "tests" / "test_inferen
 if workflow_files:
     st.caption("GitHub Actions workflow detected: " + ", ".join(p.name for p in workflow_files) + ". It runs tests, verifies packaged inference, then builds the Docker image.")
 else:
-    st.warning("No .github/workflows/*.yml file is present in this deployed checkout. Copy hidden files into the GitHub repository and commit the workflow directory.")
+    st.warning(
+        "No `.github/workflows/*.yml` file is present in this deployed checkout. The CI definition is included as a visible fallback file so it cannot be lost when hidden folders are skipped during copying."
+    )
+    st.code(
+        "mkdir -p .github/workflows\n"
+        "cp GITHUB_ACTIONS_CI.yml .github/workflows/ci.yml\n"
+        "git add .github/workflows/ci.yml\n"
+        "git commit -m \"Add GitHub Actions CI\"\n"
+        "git push",
+        language="bash",
+    )
+    if ci_template.exists():
+        st.download_button(
+            "Download GitHub Actions workflow",
+            data=ci_template.read_bytes(),
+            file_name="ci.yml",
+            mime="text/yaml",
+        )
 
 st.subheader("Recent System Events")
 if len(last_event):

@@ -77,5 +77,23 @@
       "precision_at_90_precision": 0.9000184936890286,
       "threshold_at_90_precision": 0.10575557792848528
     }
+  },
+  "live_simulation": {
+    "strategy": "predicted_risk_stratified",
+    "risk_bands": {
+      "low": "p < 0.35",
+      "medium": "0.35 <= p < 0.70",
+      "high": "p >= 0.70"
+    },
+    "target_mix": {
+      "low": 0.35,
+      "medium": 0.3,
+      "high": 0.35
+    },
+    "representative_of_holdout_prevalence": false
+  },
+  "historical_simulation": {
+    "strategy": "natural_temporal_holdout_sample",
+    "representative_of_holdout_prevalence": true
   }
 }

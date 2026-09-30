@@ -8,6 +8,7 @@ from src.config import ARTIFACT_DIR
 
 REFERENCE_PATH = ARTIFACT_DIR / "reference_orders.csv.gz"
 DEMO_PATH = ARTIFACT_DIR / "demo_orders.csv.gz"
+HISTORICAL_DEMO_PATH = ARTIFACT_DIR / "historical_demo_orders.csv.gz"
 
 FEATURE_LABELS = {
     "customer_cancel_rate": "Prior customer cancellation rate",
@@ -39,9 +40,18 @@ def load_reference():
 
 
 def load_demo_orders():
+    """Load the risk-stratified live Operations simulation queue."""
     if not DEMO_PATH.exists():
         return pd.DataFrame()
     return _read_cached_csv(str(DEMO_PATH), DEMO_PATH.stat().st_mtime_ns)
+
+
+def load_historical_demo_orders():
+    """Load a natural sample of the final temporal holdout for retrospective evaluation."""
+    path = HISTORICAL_DEMO_PATH if HISTORICAL_DEMO_PATH.exists() else DEMO_PATH
+    if not path.exists():
+        return pd.DataFrame()
+    return _read_cached_csv(str(path), path.stat().st_mtime_ns)
 
 
 def business_policy_controls(key_prefix="policy"):
