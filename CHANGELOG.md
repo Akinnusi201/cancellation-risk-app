@@ -47,3 +47,9 @@
 - Added DataOps, ModelOps, promotion, and batch-inference reliability summaries.
 - Added GitHub Actions CI, packaged-model smoke testing, and Docker image builds.
 - Expanded automated tests from 6 to 13.
+
+## 2026-09-30 hotfix
+- Added rolling-upgrade compatibility for scoring and monitoring.
+- Added fallback business-evaluation module to prevent mixed-version ImportError.
+- CI detection now recognizes any YAML workflow and reports when hidden .github files were not copied.
+- Added runtime contract tests to catch partial repository upgrades.

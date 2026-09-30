@@ -1,0 +1,33 @@
+"""Quick pre-push repository consistency check for the computational build."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+checks = []
+
+
+def check(name, ok, detail):
+    checks.append((name, bool(ok), detail))
+
+
+predict_text = (ROOT / "src/models/predict.py").read_text()
+business_text = (ROOT / "src/business.py").read_text()
+score_text = (ROOT / "views/2_Score_Order.py").read_text()
+monitor_text = (ROOT / "views/7_Model_Monitoring.py").read_text()
+workflows = list((ROOT / ".github/workflows").glob("*.yml")) + list((ROOT / ".github/workflows").glob("*.yaml"))
+
+check("Packaged production model", (ROOT / "artifacts/production_model.pkl").exists(), "artifacts/production_model.pkl")
+check("Scoring telemetry backend", "scoring_mode=" in predict_text, "src/models/predict.py")
+check("Score page compatibility", "_score_order_compat" in score_text, "views/2_Score_Order.py")
+check("Business evaluation functions", "def evaluate_business_policy" in business_text or (ROOT / "src/business_evaluation.py").exists(), "business evaluation module")
+check("Monitoring compatibility", "src.business_evaluation" in monitor_text, "views/7_Model_Monitoring.py")
+check("GitHub Actions workflow", bool(workflows), ".github/workflows/*.yml")
+check("Dockerfile", (ROOT / "Dockerfile").exists(), "Dockerfile")
+
+failed = False
+for name, ok, detail in checks:
+    print(f"{'PASS' if ok else 'FAIL'}  {name}: {detail}")
+    failed = failed or not ok
+
+if failed:
+    raise SystemExit("Repository is incomplete. Copy the full project, including hidden .github files, before pushing.")
+print("Repository consistency check passed.")

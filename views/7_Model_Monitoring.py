@@ -4,7 +4,12 @@ import pandas as pd
 import streamlit as st
 
 from src.auth import require_role
-from src.business import evaluate_business_policy, sensitivity_analysis
+try:
+    from src.business import evaluate_business_policy, sensitivity_analysis
+except ImportError:
+    # Compatibility with a partially upgraded deployment that still has the
+    # earlier live-scoring-only src.business module.
+    from src.business_evaluation import evaluate_business_policy, sensitivity_analysis
 from src.config import ARTIFACT_DIR, ROOT
 from src.models.registry import active_metadata
 from src.models.train import list_candidates

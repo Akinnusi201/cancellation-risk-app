@@ -55,25 +55,34 @@ def drift_label(value, metric="psi"):
 
 def runtime_prediction_summary(model_version=None):
     from src.database.duckdb_manager import dataframe
-    if model_version is None:
+
+    where = "" if model_version is None else " WHERE model_version = ?"
+    params = [] if model_version is None else [str(model_version)]
+    # New deployments include telemetry columns. During a rolling upgrade, an
+    # older runtime database/module may not have them yet, so fall back to the
+    # core prediction fields instead of crashing the monitoring page.
+    try:
         df = dataframe(
-            """
+            f"""
             SELECT predicted_at, probability, threshold, recommendation, latency_ms,
                    net_expected_savings, scoring_mode, feature_json
-            FROM predictions ORDER BY predicted_at DESC
-            """
-        )
-    else:
-        df = dataframe(
-            """
-            SELECT predicted_at, probability, threshold, recommendation, latency_ms,
-                   net_expected_savings, scoring_mode, feature_json
-            FROM predictions
-            WHERE model_version = ?
+            FROM predictions{where}
             ORDER BY predicted_at DESC
             """,
-            [str(model_version)],
+            params,
         )
+    except Exception:
+        df = dataframe(
+            f"""
+            SELECT predicted_at, probability, threshold, recommendation, net_expected_savings
+            FROM predictions{where}
+            ORDER BY predicted_at DESC
+            """,
+            params,
+        )
+        for col in ["latency_ms", "scoring_mode", "feature_json"]:
+            df[col] = np.nan
+
     if df.empty:
         return df, {}
     latency = pd.to_numeric(df["latency_ms"], errors="coerce").dropna()

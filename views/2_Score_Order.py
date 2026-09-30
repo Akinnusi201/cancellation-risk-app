@@ -1,4 +1,5 @@
 import io
+import inspect
 from datetime import datetime
 
 import pandas as pd
@@ -24,6 +25,17 @@ policy = business_policy_controls("score")
 tabs = st.tabs(["Incoming Order Simulation", "Manual Order", "Batch CSV"])
 
 
+def _score_order_compat(row, reference, policy, scoring_mode):
+    """Call the newest scoring API while tolerating an older predict.py during upgrades."""
+    kwargs = {"policy": policy}
+    try:
+        if "scoring_mode" in inspect.signature(score_order).parameters:
+            kwargs["scoring_mode"] = scoring_mode
+    except (TypeError, ValueError):
+        pass
+    return score_order(row, reference, **kwargs)
+
+
 def show_score(sc, row):
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Cancellation Risk", f"{sc['probability']:.1%}")
@@ -34,9 +46,11 @@ def show_score(sc, row):
         st.warning(f"Recommended action: **{sc['recommendation']}**")
     else:
         st.success(f"Recommended action: **{sc['recommendation']}**")
+    latency = sc.get("latency_ms")
+    latency_text = f" Core model latency: {latency:.1f} ms." if latency is not None else ""
     st.caption(
-        f"Technical risk threshold: {sc['threshold']:.1%}. Economic recommendation uses the configurable cost policy above. "
-        f"Core model latency: {sc.get('latency_ms', 0):.1f} ms."
+        f"Technical risk threshold: {sc['threshold']:.1%}. Economic recommendation uses the configurable cost policy above."
+        f"{latency_text}"
     )
     st.markdown("#### Key risk drivers")
     if sc["reasons"]:
@@ -64,7 +78,7 @@ with tabs[0]:
         score_key = f"sim_score_{idx}_{mode}_{policy}"
         if st.session_state.get("sim_score_key") != score_key:
             st.session_state.sim_score_key = score_key
-            st.session_state.current_score = score_order(row, reference, policy=policy, scoring_mode='simulation')
+            st.session_state.current_score = _score_order_compat(row, reference, policy, 'simulation')
             st.session_state.decision_made = False
         sc = st.session_state.current_score
 
@@ -129,7 +143,7 @@ with tabs[1]:
             "category_name_1": category,
             "customer_cancel_rate": prior,
         }]))
-        sc = score_order(manual, reference, policy=policy, scoring_mode='manual')
+        sc = _score_order_compat(manual, reference, policy, 'manual')
         show_score(sc, manual)
 
 with tabs[2]:
