@@ -1,3 +1,11 @@
+# Changelog
+
+## v3.4 - Score-page rolling-upgrade compatibility
+- Removed the hard import of `load_historical_demo_orders` from `src.ui.common`.
+- Historical Evaluation now reads the packaged historical queue directly when an older UI helper module is still deployed.
+- System Status distinguishes a packaged CI definition from an installed GitHub Actions workflow.
+- Added a regression test for partial-upgrade compatibility.
+
 # Refactor summary
 
 ## Production inference

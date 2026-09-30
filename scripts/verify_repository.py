@@ -20,6 +20,7 @@ workflows = list((ROOT / ".github/workflows").glob("*.yml")) + list((ROOT / ".gi
 check("Packaged production model", (ROOT / "artifacts/production_model.pkl").exists(), "artifacts/production_model.pkl")
 check("Scoring telemetry backend", "scoring_mode=" in predict_text, "src/models/predict.py")
 check("Score page compatibility", "_score_order_compat" in score_text, "views/2_Score_Order.py")
+check("Score page rolling-upgrade compatibility", "from src.ui.common import" not in score_text and "getattr(ui_common, \"load_historical_demo_orders\"" in score_text, "historical helper is optional during partial upgrades")
 check("Business evaluation functions", "def evaluate_business_policy" in business_text or (ROOT / "src/business_evaluation.py").exists(), "business evaluation module")
 check("Monitoring compatibility", "src.business_evaluation" in monitor_text, "views/7_Model_Monitoring.py")
 check("GitHub Actions workflow", bool(workflows), ".github/workflows/*.yml")

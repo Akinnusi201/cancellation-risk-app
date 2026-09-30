@@ -36,14 +36,14 @@ st.caption(f"Runtime MLflow backend: {MLFLOW_TRACKING_URI}")
 
 st.subheader("DevOps Readiness")
 a, b, c = st.columns(3)
-a.metric("Automated CI", "Configured" if workflow_files else "Not detected")
+a.metric("Automated CI", "Configured" if workflow_files else ("Packaged, not installed" if ci_template.exists() else "Missing"))
 b.metric("Docker Image", "Configured" if dockerfile.exists() else "Missing")
 c.metric("Packaged Inference Test", "Enabled" if (ROOT / "tests" / "test_inference_artifact.py").exists() else "Missing")
 if workflow_files:
     st.caption("GitHub Actions workflow detected: " + ", ".join(p.name for p in workflow_files) + ". It runs tests, verifies packaged inference, then builds the Docker image.")
 else:
     st.warning(
-        "No `.github/workflows/*.yml` file is present in this deployed checkout. The CI definition is included as a visible fallback file so it cannot be lost when hidden folders are skipped during copying."
+        "The GitHub Actions definition is packaged with the project, but it is not installed under `.github/workflows/` in this deployed checkout. GitHub only runs CI workflows from that directory."
     )
     st.code(
         "mkdir -p .github/workflows\n"

@@ -8,14 +8,33 @@ import streamlit as st
 from src.auth import require_role
 from src.features.inference_features import prepare_order_features
 from src.models.predict import record_decision, score_batch, score_order
+from src.config import ARTIFACT_DIR
 from src.models.registry import active_metadata
-from src.ui.common import (
-    FEATURE_LABELS,
-    business_policy_controls,
-    load_demo_orders,
-    load_historical_demo_orders,
-    load_reference,
-)
+from src.ui import common as ui_common
+
+# Import the stable helpers through the module instead of a direct symbol list.
+# This keeps the page usable during rolling/partial upgrades where an older
+# src/ui/common.py may still be present in the deployed checkout.
+FEATURE_LABELS = ui_common.FEATURE_LABELS
+business_policy_controls = ui_common.business_policy_controls
+load_demo_orders = ui_common.load_demo_orders
+load_reference = ui_common.load_reference
+
+
+def load_historical_demo_orders():
+    """Load the natural holdout queue with backward compatibility."""
+    loader = getattr(ui_common, "load_historical_demo_orders", None)
+    if callable(loader):
+        return loader()
+
+    historical_path = ARTIFACT_DIR / "historical_demo_orders.csv.gz"
+    if historical_path.exists():
+        return pd.read_csv(historical_path, low_memory=False, parse_dates=["created_at"])
+
+    # Last-resort compatibility for very old deployments. This keeps the page
+    # operational, while the caption below makes clear that the historical
+    # queue is unavailable until the full upgrade is copied.
+    return load_demo_orders()
 
 require_role("manager")
 st.title("🛒 Score Order")
