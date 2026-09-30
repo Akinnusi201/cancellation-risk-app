@@ -28,6 +28,7 @@ check("Score page compatibility", "_score_order_compat" in score_text, "views/2_
 check("Score page rolling-upgrade compatibility", "from src.ui.common import" not in score_text and "getattr(ui_common, \"load_historical_demo_orders\"" in score_text, "historical helper is optional during partial upgrades")
 check("Business evaluation functions", "def evaluate_business_policy" in business_text or (ROOT / "src/business_evaluation.py").exists(), "business evaluation module")
 check("Monitoring compatibility", "src.business_evaluation" in monitor_text, "views/7_Model_Monitoring.py")
+check("Monitoring metrics rolling-upgrade compatibility", "from src.monitoring import metrics as monitoring_metrics" in monitor_text and "getattr(\n    monitoring_metrics, \"operations_business_summary\"" in monitor_text, "new Business Impact does not hard-import a helper missing from older metrics.py")
 check("GitHub Actions workflow", bool(workflows), ".github/workflows/*.yml")
 check("Visible CI recovery template", (ROOT / "GITHUB_ACTIONS_CI.yml").exists(), "GITHUB_ACTIONS_CI.yml")
 check("Dockerfile", (ROOT / "Dockerfile").exists(), "Dockerfile")

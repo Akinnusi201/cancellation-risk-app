@@ -1,3 +1,8 @@
+## v3.10 - Monitoring import compatibility
+- Prevented Model Monitoring from crashing during partial deployments where `views/7_Model_Monitoring.py` is newer than `src/monitoring/metrics.py`.
+- Added a local Operations Business Impact fallback and lazy monitoring-helper resolution.
+- Added a regression test for the exact import mismatch seen on Streamlit Cloud.
+
 
 ## v3.9 - Operations business impact
 - Business Impact now uses only Operations Manager manual/batch scoring records.

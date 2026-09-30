@@ -14,15 +14,18 @@ except ImportError:
 from src.config import ARTIFACT_DIR, ROOT
 from src.models.registry import active_metadata
 from src.models.train import list_candidates
-from src.monitoring.metrics import (
-    MIN_MONITORING_OBSERVATIONS,
-    drift_label,
-    feature_drift,
-    pipeline_reliability,
-    population_stability_index,
-    runtime_prediction_summary,
-    operations_business_summary,
-)
+# Import the monitoring module as a module instead of importing every symbol
+# eagerly. This keeps the page compatible with a rolling/partial deployment in
+# which an older metrics.py is still present. Newer helpers are resolved with
+# getattr and get a local fallback instead of crashing at import time.
+from src.monitoring import metrics as monitoring_metrics
+
+MIN_MONITORING_OBSERVATIONS = getattr(monitoring_metrics, "MIN_MONITORING_OBSERVATIONS", 100)
+drift_label = monitoring_metrics.drift_label
+feature_drift = monitoring_metrics.feature_drift
+pipeline_reliability = monitoring_metrics.pipeline_reliability
+population_stability_index = monitoring_metrics.population_stability_index
+runtime_prediction_summary = monitoring_metrics.runtime_prediction_summary
 from src.ui import common as ui_common
 from src.currency import fetch_pkr_to_usd_rate, format_usd, pkr_to_usd, rate_summary, usd_to_pkr
 
@@ -40,6 +43,111 @@ FEATURE_LABELS = getattr(ui_common, "FEATURE_LABELS", {
     "day_of_week": "Day of week",
     "has_discount": "Discount presence",
 })
+
+
+def _empty_business_summary():
+    return {
+        "scoring_records": 0,
+        "orders_scored": 0,
+        "orders_verified": 0,
+        "verification_rate": 0.0,
+        "expected_cancellations_reached": 0.0,
+        "expected_cost_prevented": 0.0,
+        "verification_cost": 0.0,
+        "expected_unnecessary_check_cost": 0.0,
+        "expected_net_savings": 0.0,
+        "net_savings_per_1000_orders": 0.0,
+        "average_net_savings_per_verified_order": 0.0,
+        "mode_counts": {},
+        "first_scored_at": None,
+        "last_scored_at": None,
+    }
+
+
+def _fallback_operations_business_summary(model_version=None):
+    """Compatibility implementation for deployments with an older metrics.py."""
+    try:
+        from src.database.duckdb_manager import dataframe
+
+        where = "" if model_version is None else " WHERE model_version = ?"
+        params = [] if model_version is None else [str(model_version)]
+        predictions = dataframe(
+            f"""
+            SELECT prediction_id, order_id, predicted_at, probability, recommendation,
+                   expected_avoidable_cost, expected_false_positive_cost,
+                   net_expected_savings, intervention_cost, scoring_mode
+            FROM predictions{where}
+            ORDER BY predicted_at
+            """,
+            params,
+        )
+    except Exception:
+        return pd.DataFrame(), _empty_business_summary()
+
+    if predictions.empty or "scoring_mode" not in predictions.columns:
+        return pd.DataFrame(), _empty_business_summary()
+
+    allowed = {"manual", "batch", "production_manual", "production_batch"}
+    df = predictions.copy()
+    df["monitoring_mode"] = (
+        df["scoring_mode"].fillna("").astype(str).str.strip().str.lower()
+    )
+    df = df[df["monitoring_mode"].isin(allowed)].copy()
+    if df.empty:
+        return df, _empty_business_summary()
+
+    scoring_records = len(df)
+    df["predicted_at"] = pd.to_datetime(df.get("predicted_at"), errors="coerce")
+    df = df.sort_values("predicted_at")
+    if "order_id" in df.columns:
+        order_key = df["order_id"].astype("string")
+        if "prediction_id" in df.columns:
+            order_key = order_key.fillna(df["prediction_id"].astype("string"))
+        df = df.assign(_order_key=order_key).drop_duplicates("_order_key", keep="last")
+
+    verified = df["recommendation"].eq("Hold for Verification")
+    verified_df = df.loc[verified].copy()
+    orders = int(len(df))
+    verified_n = int(verified.sum())
+
+    def _sum(column):
+        if column not in verified_df.columns:
+            return 0.0
+        return float(pd.to_numeric(verified_df[column], errors="coerce").fillna(0.0).sum())
+
+    probs = pd.to_numeric(
+        verified_df.get("probability", pd.Series(index=verified_df.index, dtype=float)),
+        errors="coerce",
+    ).fillna(0.0)
+    expected_cancellations = float(probs.sum())
+    cost_prevented = _sum("expected_avoidable_cost")
+    verification_cost = _sum("intervention_cost")
+    unnecessary_cost = _sum("expected_false_positive_cost")
+    net_savings = _sum("net_expected_savings")
+
+    summary = _empty_business_summary()
+    summary.update({
+        "scoring_records": int(scoring_records),
+        "orders_scored": orders,
+        "orders_verified": verified_n,
+        "verification_rate": float(verified_n / orders) if orders else 0.0,
+        "expected_cancellations_reached": expected_cancellations,
+        "expected_cost_prevented": cost_prevented,
+        "verification_cost": verification_cost,
+        "expected_unnecessary_check_cost": unnecessary_cost,
+        "expected_net_savings": net_savings,
+        "net_savings_per_1000_orders": float(net_savings / orders * 1000.0) if orders else 0.0,
+        "average_net_savings_per_verified_order": float(net_savings / verified_n) if verified_n else 0.0,
+        "mode_counts": {str(k): int(v) for k, v in df["monitoring_mode"].value_counts().to_dict().items()},
+        "first_scored_at": df["predicted_at"].min(),
+        "last_scored_at": df["predicted_at"].max(),
+    })
+    return df.drop(columns=["_order_key"], errors="ignore"), summary
+
+
+operations_business_summary = getattr(
+    monitoring_metrics, "operations_business_summary", _fallback_operations_business_summary
+)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
