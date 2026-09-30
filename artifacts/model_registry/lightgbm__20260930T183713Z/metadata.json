@@ -1,0 +1,59 @@
+{
+  "model_id": "lightgbm__20260930T183713Z",
+  "model_family": "lightgbm",
+  "display_name": "LightGBM",
+  "status": "PRODUCTION",
+  "dataset_version": "pakistan_seed_v1",
+  "trained_at": "2026-09-30T18:37:24.524613+00:00",
+  "random_seed": 42,
+  "threshold": 0.4099999999999999,
+  "val_metrics": {
+    "roc_auc": 0.8307735543129594,
+    "pr_auc": 0.7816064284173505,
+    "brier": 0.17594895635102903,
+    "f1": 0.7243321469081238,
+    "precision": 0.6081973135406745,
+    "recall": 0.895286439448876,
+    "recall_at_80_precision": 0.49562484892434133,
+    "precision_at_80_precision": 0.8001873243833906,
+    "threshold_at_80_precision": 0.7730770749196189,
+    "recall_at_90_precision": 0.22083635484650713,
+    "precision_at_90_precision": 0.9000985221674876,
+    "threshold_at_90_precision": 0.8822717276243925
+  },
+  "test_metrics": {
+    "roc_auc": 0.9110529367473508,
+    "pr_auc": 0.9763853762001931,
+    "brier": 0.09227790783332714,
+    "f1": 0.9404569925819336,
+    "precision": 0.9248542220704126,
+    "recall": 0.9565952507128977,
+    "recall_at_80_precision": 1.0,
+    "precision_at_80_precision": 0.8303891368579871,
+    "threshold_at_80_precision": 0.003983654624498591,
+    "recall_at_90_precision": 0.9886945769298711,
+    "precision_at_90_precision": 0.9000045943214188,
+    "threshold_at_90_precision": 0.1425142010126462
+  },
+  "business_metrics": {
+    "net_savings": 36229600.0,
+    "net_savings_per_1000_orders": 759196.1610192577,
+    "intervention_rate": 0.8998344544330589
+  },
+  "duration_seconds": null,
+  "model_artifact": "artifacts/model_registry/lightgbm__20260930T183713Z/model.pkl",
+  "training_device": "CPU (existing production)",
+  "experiment_name": "cancellation-risk__pakistan_seed_v1__20260930T183713Z",
+  "run_name": "lightgbm__20260930T183713Z",
+  "source": "existing_production",
+  "training_scope": "full_seed_training",
+  "training_rows": 222694,
+  "validation_rows": 47720,
+  "test_rows": 47721,
+  "reproducibility": {
+    "python": "3.13.5",
+    "sklearn": "1.8.0",
+    "lightgbm": "4.6.0",
+    "xgboost": "3.1.3"
+  }
+}

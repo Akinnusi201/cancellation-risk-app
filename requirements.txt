@@ -8,3 +8,6 @@ duckdb>=1.1
 pyarrow>=15
 matplotlib>=3.8
 cloudpickle>=3.0
+xgboost>=3.0,<4
+google-auth>=2.30
+requests>=2.31

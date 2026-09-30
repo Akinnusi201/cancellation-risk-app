@@ -38,7 +38,7 @@ def login_screen() -> None:
     with right:
         st.subheader("🛠️ Developer")
         st.write(
-            "Manage DataOps, train candidate models, review MLflow experiments, "
+            "Manage DataOps, review the model registry and MLflow experiments, "
             "monitor performance, and promote approved models."
         )
         if st.button(

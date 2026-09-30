@@ -1,55 +1,55 @@
-"""Quick pre-push repository consistency check for the computational build."""
+"""Quick pre-push repository consistency check for the end-to-end MLOps build."""
 from pathlib import Path
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 checks = []
 
-
 def check(name, ok, detail):
     checks.append((name, bool(ok), detail))
 
+def text(path):
+    return (ROOT / path).read_text() if (ROOT / path).exists() else ""
 
-predict_text = (ROOT / "src/models/predict.py").read_text()
-business_text = (ROOT / "src/business.py").read_text()
-score_text = (ROOT / "views/2_Score_Order.py").read_text()
-monitor_text = (ROOT / "views/7_Model_Monitoring.py").read_text()
-dashboard_text = (ROOT / "views/1_Operations_Dashboard.py").read_text()
-history_text = (ROOT / "views/3_Decision_History.py").read_text()
-monitor_metrics_text = (ROOT / "src/monitoring/metrics.py").read_text()
-currency_text = (ROOT / "src/currency.py").read_text() if (ROOT / "src/currency.py").exists() else ""
-ui_common_text = (ROOT / "src/ui/common.py").read_text()
-mlflow_view_text = (ROOT / "views/8_MLflow_Experiments.py").read_text()
-train_text = (ROOT / "src/models/train.py").read_text()
+predict_text = text("src/models/predict.py")
+score_text = text("views/2_Score_Order.py")
+monitor_text = text("views/7_Model_Monitoring.py")
+metrics_text = text("src/monitoring/metrics.py")
+modelops_text = text("views/6_ModelOps.py")
+experiments_text = text("views/8_MLflow_Experiments.py")
+suite_text = text("src/models/suite.py")
+retraining_text = text("src/retraining.py")
+readme_text = text("README.md")
 workflows = list((ROOT / ".github/workflows").glob("*.yml")) + list((ROOT / ".github/workflows").glob("*.yaml"))
 
 check("Packaged production model", (ROOT / "artifacts/production_model.pkl").exists(), "artifacts/production_model.pkl")
-check("Scoring telemetry backend", "scoring_mode=" in predict_text, "src/models/predict.py")
-check("Score page compatibility", "_score_order_compat" in score_text, "views/2_Score_Order.py")
-check("Score page rolling-upgrade compatibility", "from src.ui.common import" not in score_text and "getattr(ui_common, \"load_historical_demo_orders\"" in score_text, "historical helper is optional during partial upgrades")
-check("Business evaluation functions", "def evaluate_business_policy" in business_text or (ROOT / "src/business_evaluation.py").exists(), "business evaluation module")
-check("Monitoring compatibility", "src.business_evaluation" in monitor_text, "views/7_Model_Monitoring.py")
-check("Monitoring metrics rolling-upgrade compatibility", "from src.monitoring import metrics as monitoring_metrics" in monitor_text and "getattr(\n    monitoring_metrics, \"operations_business_summary\"" in monitor_text, "new Business Impact does not hard-import a helper missing from older metrics.py")
-check("GitHub Actions workflow", bool(workflows), ".github/workflows/*.yml")
-check("Visible CI recovery template", (ROOT / "GITHUB_ACTIONS_CI.yml").exists(), "GITHUB_ACTIONS_CI.yml")
+check("Five-model starter registry", (ROOT / "artifacts/model_registry/registry.json").exists(), "artifacts/model_registry/registry.json")
+if (ROOT / "artifacts/model_registry/registry.json").exists():
+    registry = json.loads((ROOT / "artifacts/model_registry/registry.json").read_text())
+    families = {m.get("model_family") for m in registry.get("models", [])}
+    check("All five model families", families == {"logistic_regression", "random_forest", "extra_trees", "lightgbm", "xgboost"}, str(sorted(families)))
+    check("LightGBM initially production", any(m.get("model_family") == "lightgbm" and m.get("status") == "PRODUCTION" for m in registry.get("models", [])), "starter status")
+check("Colab end-to-end notebook", (ROOT / "notebooks/end_to_end_ml_workflow.ipynb").exists(), "notebooks/end_to_end_ml_workflow.ipynb")
+check("Multi-model training suite", all(x in suite_text for x in ["RandomForestClassifier", "ExtraTreesClassifier", "XGBClassifier", "LGBMClassifier", "LogisticRegression"]), "src/models/suite.py")
+check("MLflow tracking in suite", "mlflow.log_metrics" in suite_text and "mlflow.log_params" in suite_text, "parameters + metrics logged")
+check("Candidate qualification gates", "DEFAULT_GATES" in suite_text and "select_candidate" in suite_text, "qualification before candidate")
+check("Manual promotion governance", "Promote Candidate to Production" in modelops_text and "promote_registered_model" in modelops_text, "developer approval required")
+check("Candidate package import", "Import candidate package" in modelops_text and "import_candidate_package" in modelops_text, "Colab handoff")
+check("Monitoring retraining policy", "evaluate_retraining_policy" in monitor_text and "labeled_runtime_performance" in metrics_text, "hybrid drift + labeled performance")
+check("Colab Enterprise optional trigger", "notebookExecutionJobs" in retraining_text and "Trigger Colab Enterprise Retraining" in modelops_text, "optional API path")
+check("Production-only drift population", "PRODUCTION_SCORING_MODES" in metrics_text and "simulation_live" not in text("src/monitoring/metrics.py").split("PRODUCTION_SCORING_MODES",1)[1].split("}",1)[0], "simulation excluded from drift")
+check("Prototype business impact", "OPERATIONS_BUSINESS_MODES" in metrics_text and '"simulation_live"' in metrics_text, "simulation can count for prototype economics")
+check("Scoring telemetry", "scoring_mode=" in predict_text and "latency_ms" in predict_text, "runtime monitoring")
+check("Role-safe score page", "_score_order_compat" in score_text, "rolling-upgrade compatibility")
+check("GitHub Actions", bool(workflows), ".github/workflows")
 check("Dockerfile", (ROOT / "Dockerfile").exists(), "Dockerfile")
-check("Stage-by-stage MLflow progress", "stage_callback=update_stage" in mlflow_view_text and "Train LightGBM" in train_text, "views/8_MLflow_Experiments.py + src/models/train.py")
-check("Fast manual experiment logging", "log_model_artifact=False" in train_text, "manual MLflow runs skip non-promotable model serialization")
-check("Callback isolation", "n_estimators=70" in train_text and "stage_callback=stage_callback" in train_text, "manual callbacks stay outside LightGBM hyperparameters")
-check("Balanced live simulation", (ROOT / "artifacts/demo_orders.csv.gz").exists() and (ROOT / "artifacts/historical_demo_orders.csv.gz").exists(), "separate live and historical queues")
-check("Production-only drift population", "PRODUCTION_SCORING_MODES" in monitor_metrics_text and "split_monitoring_population" in monitor_metrics_text, "simulation/evaluation traffic excluded from drift")
-check("Prototype operations business impact", "OPERATIONS_BUSINESS_MODES" in monitor_metrics_text and '"simulation_live"' in monitor_metrics_text and "operations_business_summary" in monitor_text and "Historical business backtest" in monitor_text, "live simulation counts for prototype business impact; holdout economics remains under Model Evaluation")
-check("Prototype customer order lifecycle", "CREATE TABLE IF NOT EXISTS prototype_orders" in (ROOT / "src/database/duckdb_manager.py").read_text() and "AWAITING_OPERATIONS_REVIEW" in predict_text and "Customer order status" in score_text, "customer order -> Operations review -> release or verification")
-check("Minimum drift sample guard", "MIN_MONITORING_OBSERVATIONS = 100" in monitor_metrics_text and "INSUFFICIENT RUNTIME DATA" in monitor_text, "no drift label before 100 eligible production scores")
-check("Batch prediction telemetry", '"batch"' in predict_text and "executemany" in predict_text, "batch predictions are persisted for production monitoring")
-check("Live PKR to USD conversion", "api.frankfurter.dev" in currency_text and "providers/sbp" in currency_text, "src/currency.py")
-check("USD display with PKR model compatibility", "usd_to_pkr" in score_text and "get_currency_context" in ui_common_text, "operations UI uses USD while inference remains in PKR")
-check("USD rolling-upgrade compatibility", all(x not in dashboard_text + history_text + monitor_text for x in ["from src.ui.common import currency_caption", "from src.ui.common import FEATURE_LABELS"]) and "ui_common.get_currency_context" not in score_text and "getattr(ui_common, \"currency_caption\", None)" in score_text, "USD pages tolerate an older src/ui/common.py")
+check("First-deployment README", all(x in readme_text for x in ["What problem does this solve?", "Starter model registry", "Heavy training in Google Colab", "Candidate selection", "Monitoring and retraining", "Reproducibility"]), "README.md")
+check("Experiments GUI", "Experiment Runs" in experiments_text and "Compare Models" in experiments_text and "MLflow Tracking" in experiments_text, "plain-language MLflow-style interface")
 
 failed = False
 for name, ok, detail in checks:
     print(f"{'PASS' if ok else 'FAIL'}  {name}: {detail}")
     failed = failed or not ok
-
 if failed:
-    raise SystemExit("Repository is incomplete. Copy the full project, including hidden .github files, before pushing.")
+    raise SystemExit("Repository is incomplete. Fix failed checks before pushing.")
 print("Repository consistency check passed.")

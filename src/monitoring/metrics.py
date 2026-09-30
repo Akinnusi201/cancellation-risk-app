@@ -397,3 +397,46 @@ def feature_drift(reference: pd.DataFrame, predictions: pd.DataFrame):
                 "Status": drift_label(value, "tv"),
             })
     return pd.DataFrame(rows)
+
+
+def labeled_runtime_performance(model_version=None):
+    """Performance on production-like predictions whose final outcomes are known."""
+    from src.database.duckdb_manager import dataframe
+    from src.models.evaluate import metrics as classification_metrics
+    from src.business_evaluation import evaluate_business_policy
+
+    where = "" if model_version is None else " AND model_version = ?"
+    params = [] if model_version is None else [str(model_version)]
+    try:
+        df = dataframe(
+            f"""
+            SELECT probability, threshold, actual_outcome, scoring_mode
+            FROM predictions
+            WHERE actual_outcome IS NOT NULL{where}
+            ORDER BY predicted_at
+            """,
+            params,
+        )
+    except Exception:
+        return {"labeled_observations": 0}
+    if df.empty:
+        return {"labeled_observations": 0}
+    df["monitoring_mode"] = df["scoring_mode"].map(normalize_scoring_mode)
+    df = df[df["monitoring_mode"].isin(PRODUCTION_SCORING_MODES)].copy()
+    mapping = {"canceled": 1, "cancelled": 1, "completed": 0, "complete": 0}
+    y = df["actual_outcome"].astype(str).str.strip().str.lower().map(mapping)
+    keep = y.notna()
+    df = df.loc[keep].copy()
+    y = y.loc[keep].astype(int)
+    if len(df) < 2 or y.nunique() < 2:
+        return {"labeled_observations": int(len(df))}
+    probs = pd.to_numeric(df["probability"], errors="coerce").fillna(0.0).to_numpy()
+    threshold = float(pd.to_numeric(df["threshold"], errors="coerce").dropna().median()) if df["threshold"].notna().any() else 0.5
+    out = classification_metrics(y.to_numpy(), probs, threshold)
+    try:
+        business = evaluate_business_policy(y.to_numpy(), probs)
+        out["net_savings_per_1000_orders"] = business["net_savings_per_1000_orders"]
+    except Exception:
+        out["net_savings_per_1000_orders"] = None
+    out["labeled_observations"] = int(len(df))
+    return out

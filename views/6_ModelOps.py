@@ -4,121 +4,181 @@ import pandas as pd
 import streamlit as st
 
 from src.auth import require_role
-from src.data.io import read_snapshot
-from src.database.duckdb_manager import dataframe
-from src.models.registry import active_metadata
-from src.models.train import list_candidates, promote_candidate, train_candidate
-
-require_role("developer")
-st.title("🤖 ModelOps")
-st.caption(
-    "Run a Logistic Regression baseline and a LightGBM candidate on the same temporal split. "
-    "Production remains unchanged until explicit promotion."
+from src.currency import fetch_pkr_to_usd_rate, format_usd
+from src.models.registry import (
+    active_metadata,
+    candidate_metadata,
+    import_candidate_package,
+    list_registered_models,
+    promote_registered_model,
+    set_candidate,
+)
+from src.retraining import (
+    colab_enterprise_configuration,
+    list_retraining_requests,
+    ordinary_colab_url,
+    trigger_colab_enterprise,
 )
 
-versions = dataframe("SELECT dataset_version, processed_path, order_count FROM dataset_versions ORDER BY created_at DESC")
-if not len(versions):
-    st.warning("No dataset versions are available.")
-    st.stop()
+require_role("developer")
+st.title("🤖 Model Registry & Deployment")
+st.caption(
+    "Compare trained models, review the current candidate, and control production deployment. "
+    "Training is intentionally separated from the web app and runs in Google Colab or Colab Enterprise."
+)
 
-ver = st.selectbox("Training dataset version", versions["dataset_version"].tolist())
-row = versions[versions.dataset_version == ver].iloc[0]
-st.caption(f"{int(row.order_count):,} order-level records")
+ROOT = Path(__file__).resolve().parents[1]
+NOTEBOOK_PATH = ROOT / "notebooks" / "end_to_end_ml_workflow.ipynb"
 
-with st.expander("Experiment parameters", expanded=False):
-    include_baseline = st.checkbox(
-        "Train Logistic Regression baseline",
-        value=True,
-        help="The baseline uses the exact same temporal split and features as the LightGBM candidate.",
+
+def plain_health(model):
+    m = model.get("test_metrics", {})
+    if not m:
+        return "No metrics"
+    if m.get("roc_auc", 0) >= 0.90 and m.get("brier", 1) <= 0.12:
+        return "Strong"
+    if m.get("roc_auc", 0) >= 0.82 and m.get("brier", 1) <= 0.20:
+        return "Good"
+    return "Needs review"
+
+
+models = list_registered_models()
+active = active_metadata() or {}
+candidate = candidate_metadata()
+fx = fetch_pkr_to_usd_rate()
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Production", active.get("model_display_name") or str(active.get("model_name", "Unknown")).replace("_", " ").title())
+c2.metric("Production Version", str(active.get("model_version", "n/a")))
+c3.metric("Candidate", candidate.get("model_id") if candidate else "None")
+
+st.markdown("### Model registry")
+st.caption(
+    "**Production** is the model currently scoring orders. **Candidate** is the proposed replacement. "
+    "**Ready** models are trained and available for comparison but are not deployed."
+)
+if not models:
+    st.warning("No registered models are packaged yet.")
+else:
+    rows = []
+    for model in models:
+        tm = model.get("test_metrics", {})
+        bm = model.get("business_metrics", {})
+        rows.append({
+            "Model": model.get("display_name"),
+            "Status": model.get("status", "READY"),
+            "Health": plain_health(model),
+            "ROC-AUC": tm.get("roc_auc"),
+            "PR-AUC": tm.get("pr_auc"),
+            "Brier": tm.get("brier"),
+            "Recall @ 90% precision": tm.get("recall_at_90_precision"),
+            "Est. savings / 1,000": format_usd(bm.get("net_savings_per_1000_orders", 0.0), float(fx["rate"])) if bm.get("net_savings_per_1000_orders") is not None else "n/a",
+            "Training": model.get("training_device", "CPU"),
+            "Dataset": model.get("dataset_version"),
+            "Model ID": model.get("model_id"),
+        })
+    table = pd.DataFrame(rows)
+    st.dataframe(table, use_container_width=True, hide_index=True)
+
+    selected_id = st.selectbox(
+        "Inspect a model",
+        [m["model_id"] for m in models],
+        format_func=lambda mid: next((f"{m['display_name']} · {m.get('status','READY')}" for m in models if m["model_id"] == mid), mid),
     )
-    c1, c2, c3 = st.columns(3)
-    n_estimators = c1.number_input("LightGBM trees", min_value=50, max_value=800, value=150, step=25)
-    learning_rate = c2.number_input("Learning rate", min_value=0.01, max_value=0.30, value=0.05, step=0.01, format="%.2f")
-    num_leaves = c3.number_input("Leaves", min_value=7, max_value=127, value=31, step=4)
+    selected = next(m for m in models if m["model_id"] == selected_id)
+    a, b, c, d = st.columns(4)
+    tm = selected.get("test_metrics", {})
+    a.metric("ROC-AUC", f"{tm.get('roc_auc', float('nan')):.3f}")
+    b.metric("PR-AUC", f"{tm.get('pr_auc', float('nan')):.3f}")
+    c.metric("Brier", f"{tm.get('brier', float('nan')):.3f}")
+    d.metric("Recall @ 90% precision", f"{tm.get('recall_at_90_precision', float('nan')):.1%}")
+    st.caption(
+        f"Experiment: `{selected.get('experiment_name', 'packaged starter')}` · Run: `{selected.get('run_name', selected_id)}` · "
+        f"Seed: {selected.get('random_seed', 42)} · Scope: {selected.get('training_scope', 'full training workflow')}"
+    )
 
-if st.button("Run Experiment Set", type="primary", use_container_width=True):
-    p = Path(row.processed_path)
-    if not p.exists():
-        st.error(f"Dataset artifact not found: {p}")
-    else:
-        bar = st.progress(0, text="Preparing experiment...")
-        stage = st.empty()
-
-        def update_progress(percent, message):
-            bar.progress(max(0, min(100, int(percent))), text=f"{int(percent)}% • {message}")
-            stage.info(message)
-
-        try:
-            snapshot = read_snapshot(p)
-            cand = train_candidate(
-                snapshot,
-                ver,
-                progress_callback=update_progress,
-                include_baseline=include_baseline,
-                n_estimators=int(n_estimators),
-                learning_rate=float(learning_rate),
-                num_leaves=int(num_leaves),
-            )
-            stage.success(
-                f"Experiment complete. Candidate **{cand['candidate_id']}** is ready. Production was not changed."
-            )
-            st.session_state.latest_candidate = cand["candidate_id"]
-        except Exception as exc:
-            stage.error(f"Experiment failed: {exc}")
-            st.exception(exc)
+    if selected.get("status") != "PRODUCTION":
+        if st.button("Mark selected model as Candidate", use_container_width=True):
+            set_candidate(selected_id, "Developer selected model from registry")
+            st.success(f"{selected.get('display_name')} is now the candidate. Production has not changed.")
+            st.rerun()
 
 st.divider()
-st.subheader("Experiment Comparison")
-candidates = list_candidates()
-if not candidates:
-    st.info("No runtime candidate models have been trained yet. The packaged production evaluation remains available under Model Monitoring.")
+st.markdown("### Candidate review and deployment")
+candidate = candidate_metadata()
+if not candidate:
+    st.info("There is no active candidate. A Colab experiment can select one automatically, or you can mark a registered model as Candidate above.")
 else:
-    ids = [x["candidate_id"] for x in candidates]
-    default_idx = ids.index(st.session_state.latest_candidate) if st.session_state.get("latest_candidate") in ids else 0
-    selected_id = st.selectbox("Candidate", ids, index=default_idx)
-    cand = next(x for x in candidates if x["candidate_id"] == selected_id)
-    prod = active_metadata() or {}
-    baseline = cand.get("baseline") or {}
-
-    metrics = [
-        "roc_auc",
-        "pr_auc",
-        "brier",
-        "f1",
-        "precision",
-        "recall",
-        "recall_at_80_precision",
-        "recall_at_90_precision",
-    ]
-    compare = pd.DataFrame({
-        "Metric": metrics,
-        "Production": [prod.get("test_metrics", {}).get(m) for m in metrics],
-        "Logistic Regression": [baseline.get("test_metrics", {}).get(m) for m in metrics],
-        "LightGBM Candidate": [cand.get("test_metrics", {}).get(m) for m in metrics],
-    })
-    st.dataframe(compare, use_container_width=True, hide_index=True)
-
-    if baseline:
-        st.caption(
-            f"Baseline run: {baseline.get('run_id', 'n/a')[:12]} • "
-            f"Candidate run: {cand.get('run_id', 'n/a')[:12]} • Dataset: {cand['dataset_version']}"
-        )
+    candidate_model = next((m for m in list_registered_models() if m.get("model_id") == candidate.get("model_id")), None)
+    if not candidate_model:
+        st.warning("Candidate metadata exists, but its model artifact is not registered.")
     else:
-        st.caption(f"Candidate dataset: {cand['dataset_version']} • Candidate threshold: {cand['threshold']:.1%}")
+        st.success(f"Candidate: **{candidate_model.get('display_name')}** · `{candidate_model.get('model_id')}`")
+        selection = candidate_model.get("selection") or candidate.get("selection") or {}
+        if selection:
+            st.caption("Candidate selection: passed qualification gates, then ranked using discrimination, calibration, fixed-precision recall, and business value.")
+        st.warning("Deployment is never automatic in this project. A developer must explicitly approve the candidate.")
+        confirm = st.checkbox(f"I reviewed {candidate_model.get('display_name')} and approve deployment to production.")
+        if st.button("Promote Candidate to Production", type="primary", disabled=not confirm, use_container_width=True):
+            try:
+                active = promote_registered_model(candidate_model["model_id"])
+                st.success(f"Production is now **{active.get('model_display_name')}** · `{active.get('model_version')}`.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Deployment failed: {exc}")
+                st.exception(exc)
 
-    st.info(
-        "Recall at fixed precision answers how many canceled orders the model can identify while enforcing a minimum precision. "
-        "The 90% line is especially useful here because the final temporal holdout has cancellation prevalence above 80%."
+st.divider()
+st.markdown("### Train or retrain in Google Colab")
+st.caption(
+    "The notebook runs the complete computational workflow: prepare data, train five models, track every run in MLflow, "
+    "apply qualification gates, select the best qualified candidate, and export a candidate package. Random Forest and Extra Trees use CPU; "
+    "LightGBM and XGBoost prefer the Colab GPU and fall back to CPU if needed."
+)
+
+colab_url = ordinary_colab_url()
+left, right = st.columns(2)
+if colab_url:
+    left.link_button("Open Training Workflow in Colab", colab_url, use_container_width=True)
+elif NOTEBOOK_PATH.exists():
+    left.download_button(
+        "Download Colab Training Notebook",
+        NOTEBOOK_PATH.read_bytes(),
+        file_name="end_to_end_ml_workflow.ipynb",
+        mime="application/x-ipynb+json",
+        use_container_width=True,
     )
-    st.warning("Promotion is an explicit governance action. Review the metrics and dataset version before replacing production.")
+else:
+    left.button("Training notebook unavailable", disabled=True, use_container_width=True)
 
-    confirm = st.checkbox(f"I reviewed {selected_id} and want to make it the production model.")
-    if st.button("Promote Candidate to Production", disabled=not confirm, type="primary", use_container_width=True):
+cfg = colab_enterprise_configuration()
+if cfg.get("configured"):
+    if right.button("Trigger Colab Enterprise Retraining", use_container_width=True):
         try:
-            active = promote_candidate(selected_id)
-            st.success(
-                f"Production updated to model **{active['model_version']}** using dataset **{active['dataset_version']}**."
-            )
+            result = trigger_colab_enterprise()
+            st.success("Colab Enterprise notebook execution was submitted.")
+            st.json(result)
         except Exception as exc:
-            st.error(f"Promotion failed: {exc}")
-            st.exception(exc)
+            st.error(str(exc))
+else:
+    right.button("Colab Enterprise: not configured", disabled=True, use_container_width=True)
+    st.caption("Optional production path: configure the COLAB_ENTERPRISE_* environment variables and Google Cloud credentials to enable automatic notebook execution.")
+
+uploaded = st.file_uploader("Import candidate package produced by Colab", type=["zip"], help="Upload the candidate_package__*.zip created by the notebook. Importing registers the candidate but does not deploy it.")
+if uploaded and st.button("Register Imported Candidate", use_container_width=True):
+    try:
+        imported = import_candidate_package(uploaded.getvalue())
+        st.success(f"Registered **{imported.get('display_name', imported.get('model_family'))}** as Candidate. Production is unchanged.")
+        st.rerun()
+    except Exception as exc:
+        st.error(f"Candidate import failed: {exc}")
+        st.exception(exc)
+
+st.markdown("### Retraining requests")
+requests = list_retraining_requests()
+if not requests:
+    st.caption("No monitoring-triggered retraining requests are open.")
+else:
+    req = pd.DataFrame(requests)
+    keep = [c for c in ["created_at", "request_id", "trigger_type", "model_version", "dataset_version", "status"] if c in req.columns]
+    st.dataframe(req[keep].sort_values("created_at", ascending=False), use_container_width=True, hide_index=True)

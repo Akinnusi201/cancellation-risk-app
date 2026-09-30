@@ -12,8 +12,9 @@ except ImportError:
     # earlier live-scoring-only src.business module.
     from src.business_evaluation import evaluate_business_policy
 from src.config import ARTIFACT_DIR, ROOT
-from src.models.registry import active_metadata
-from src.models.train import list_candidates
+from src.models.registry import active_metadata, list_registered_models
+from src.database.duckdb_manager import connect
+from src.retraining import evaluate_retraining_policy, list_retraining_requests, ordinary_colab_url, maybe_auto_trigger_enterprise
 # Import the monitoring module as a module instead of importing every symbol
 # eagerly. This keeps the page compatible with a rolling/partial deployment in
 # which an older metrics.py is still present. Newer helpers are resolved with
@@ -248,7 +249,8 @@ if not meta:
 
 m = meta.get("test_metrics", {})
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Production Model", f"LightGBM {meta.get('model_version')}")
+production_name = meta.get("model_display_name") or str(meta.get("model_name", "Unknown")).replace("_", " ").title()
+c1.metric("Production Model", production_name)
 c2.metric("ROC-AUC", f"{m.get('roc_auc', float('nan')):.3f}")
 c3.metric("PR-AUC", f"{m.get('pr_auc', float('nan')):.3f}")
 c4.metric("Brier Score", f"{m.get('brier', float('nan')):.3f}")
@@ -271,12 +273,13 @@ if not eval_dir.is_absolute():
     eval_dir = ROOT / eval_dir
 predictions_path = eval_dir / "test_predictions.csv.gz"
 
-runtime_tab, drift_tab, business_tab, evaluation_tab, candidate_tab = st.tabs([
+runtime_tab, drift_tab, business_tab, evaluation_tab, retraining_tab, candidate_tab = st.tabs([
     "Runtime Health",
     "Drift",
     "Business Impact",
     "Model Evaluation",
-    "Candidate History",
+    "Retraining",
+    "Model Registry",
 ])
 
 MODE_LABELS = {
@@ -577,7 +580,7 @@ with evaluation_tab:
     comparison_path = eval_dir / "baseline_comparison.csv"
     if comparison_path.exists():
         comparison = pd.read_csv(comparison_path)
-        st.markdown("#### Logistic Regression baseline vs LightGBM")
+        st.markdown("#### Packaged baseline comparison")
         st.dataframe(comparison, use_container_width=True, hide_index=True)
 
     for title, name in [
@@ -592,25 +595,129 @@ with evaluation_tab:
 
     fi = eval_dir / "feature_importance.csv"
     if fi.exists():
-        st.markdown("#### LightGBM feature importance")
+        st.markdown("#### Production-model feature importance")
         x = pd.read_csv(fi).head(15).set_index("feature")
         st.bar_chart(x)
 
+with retraining_tab:
+    st.subheader("Performance feedback and retraining policy")
+    st.caption(
+        "Drift is an early warning. Confirmed performance degradation uses real final outcomes when they become available. "
+        "A retraining request can be created automatically, but deployment still requires developer approval."
+    )
+
+    st.markdown("#### Add final order outcomes")
+    st.caption("Upload a CSV with `order_id` and `final_outcome` (`Completed` or `Canceled`). This lets monitoring measure real production performance after outcomes arrive.")
+    feedback = st.file_uploader("Outcome feedback CSV", type=["csv"], key="outcome_feedback")
+    if feedback is not None:
+        try:
+            feedback_df = pd.read_csv(feedback)
+            required = {"order_id", "final_outcome"}
+            if not required.issubset(feedback_df.columns):
+                st.error("The file must contain order_id and final_outcome columns.")
+            else:
+                clean = feedback_df[["order_id", "final_outcome"]].copy()
+                clean["final_outcome"] = clean["final_outcome"].astype(str).str.strip().str.lower().map({
+                    "completed": "Completed", "complete": "Completed", "canceled": "Canceled", "cancelled": "Canceled"
+                })
+                clean = clean.dropna().drop_duplicates("order_id", keep="last")
+                if st.button("Apply Outcome Feedback", use_container_width=True):
+                    with connect() as con:
+                        con.executemany(
+                            "UPDATE predictions SET actual_outcome = ? WHERE order_id = ?",
+                            [[row.final_outcome, str(row.order_id)] for row in clean.itertuples(index=False)],
+                        )
+                    st.success(f"Applied final outcomes for {len(clean):,} orders.")
+                    st.rerun()
+        except Exception as exc:
+            st.error(f"Could not read outcome feedback: {exc}")
+
+    labeled_fn = getattr(monitoring_metrics, "labeled_runtime_performance", None)
+    labeled = labeled_fn(meta.get("model_version")) if callable(labeled_fn) else {"labeled_observations": 0}
+    st.markdown("#### Observed production performance")
+    labeled_n = int(labeled.get("labeled_observations", 0) or 0)
+    if labeled_n < 2:
+        st.info("No labeled production outcomes are available yet. Drift can still provide an early warning, but true model degradation cannot be confirmed until outcomes arrive.")
+    else:
+        a, b, c, d = st.columns(4)
+        a.metric("Labeled Orders", f"{labeled_n:,}")
+        b.metric("Observed ROC-AUC", f"{labeled.get('roc_auc', float('nan')):.3f}" if labeled.get("roc_auc") is not None else "n/a")
+        c.metric("Observed Brier", f"{labeled.get('brier', float('nan')):.3f}" if labeled.get("brier") is not None else "n/a")
+        d.metric("Recall @ 90% Precision", f"{labeled.get('recall_at_90_precision', float('nan')):.1%}" if labeled.get("recall_at_90_precision") is not None else "n/a")
+        if labeled_n < 100:
+            st.caption("At least 100 labeled production outcomes are required before performance degradation can trigger retraining.")
+
+    runtime_predictions, runtime = runtime_prediction_summary(meta.get("model_version"))
+    eligible = int(runtime.get("eligible_predictions", 0) or 0)
+    prediction_psi_value = None
+    severe_feature_count = 0
+    if eligible >= MIN_MONITORING_OBSERVATIONS and predictions_path.exists():
+        hist = pd.read_csv(predictions_path)
+        prediction_psi_value = population_stability_index(hist["probability"], runtime_predictions["probability"])
+        try:
+            drift_table = feature_drift(load_reference(), runtime_predictions)
+            severe_feature_count = int((drift_table["Status"] == "DRIFT").sum()) if not drift_table.empty else 0
+        except Exception:
+            severe_feature_count = 0
+
+    policy_result = evaluate_retraining_policy(
+        model_version=meta.get("model_version"),
+        dataset_version=meta.get("dataset_version"),
+        prediction_psi=prediction_psi_value,
+        severe_feature_drift_count=severe_feature_count,
+        eligible_runtime_predictions=eligible,
+        labeled_metrics=labeled,
+        production_metrics=meta.get("test_metrics", {}),
+    )
+
+    st.markdown("#### Automatic retraining policy")
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Eligible Runtime Orders", f"{eligible:,}")
+    p2.metric("Prediction PSI", f"{prediction_psi_value:.3f}" if prediction_psi_value is not None else "n/a")
+    p3.metric("Features in DRIFT", severe_feature_count)
+    if policy_result.get("triggered"):
+        request = policy_result.get("request")
+        try:
+            request = maybe_auto_trigger_enterprise(request)
+        except Exception as trigger_exc:
+            st.warning(f"Retraining request exists, but automatic Colab Enterprise submission failed: {trigger_exc}")
+        st.error(f"Retraining requested: {policy_result.get('trigger_type').replace('_', ' ').title()}")
+        if request and request.get("status") == "RUNNING":
+            st.success("Automatic Colab Enterprise retraining has been submitted. The resulting best-qualified model will return as Candidate, not Production.")
+        st.caption("In ordinary Colab, use the button/link below. The winning model becomes Candidate only; it is never deployed automatically.")
+    else:
+        st.success("No retraining trigger is active. The current production model remains deployed.")
+        st.caption("Unlabeled drift must persist across consecutive health checks. Confirmed labeled degradation can trigger immediately once the minimum labeled sample is available.")
+
+    colab = ordinary_colab_url()
+    if colab:
+        st.link_button("Open Retraining Workflow in Colab", colab, use_container_width=True)
+
+    requests = list_retraining_requests()
+    if requests:
+        st.markdown("#### Retraining request history")
+        req = pd.DataFrame(requests)
+        cols = [c for c in ["created_at", "request_id", "trigger_type", "model_version", "dataset_version", "status"] if c in req.columns]
+        st.dataframe(req[cols].sort_values("created_at", ascending=False), use_container_width=True, hide_index=True)
+
 with candidate_tab:
-    candidates = list_candidates()
-    if candidates:
+    st.subheader("Registered model history")
+    models = list_registered_models()
+    if models:
         rows = []
-        for c in candidates:
-            baseline = c.get("baseline") or {}
+        for model in models:
+            tm = model.get("test_metrics", {})
             rows.append({
-                "candidate_id": c["candidate_id"],
-                "created_at": c["created_at"],
-                "dataset_version": c["dataset_version"],
-                "threshold": c["threshold"],
-                "baseline_roc_auc": baseline.get("test_metrics", {}).get("roc_auc"),
-                "baseline_pr_auc": baseline.get("test_metrics", {}).get("pr_auc"),
-                **{f"candidate_{k}": v for k, v in c.get("test_metrics", {}).items()},
+                "Model": model.get("display_name"),
+                "Status": model.get("status", "READY"),
+                "Model ID": model.get("model_id"),
+                "Dataset": model.get("dataset_version"),
+                "ROC-AUC": tm.get("roc_auc"),
+                "PR-AUC": tm.get("pr_auc"),
+                "Brier": tm.get("brier"),
+                "Training device": model.get("training_device"),
+                "Trained at": model.get("trained_at"),
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
-        st.info("No runtime candidates have been trained yet.")
+        st.info("No registered models are available.")

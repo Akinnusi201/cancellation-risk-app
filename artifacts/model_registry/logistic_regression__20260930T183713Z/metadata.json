@@ -1,0 +1,48 @@
+{
+  "model_id": "logistic_regression__20260930T183713Z",
+  "model_family": "logistic_regression",
+  "display_name": "Logistic Regression",
+  "status": "READY",
+  "dataset_version": "pakistan_seed_v1",
+  "trained_at": "2026-09-30T18:37:15.132242+00:00",
+  "random_seed": 42,
+  "threshold": 0.295,
+  "val_metrics": {
+    "roc_auc": 0.8018857828173017,
+    "pr_auc": 0.7350399293017553,
+    "brier": 0.1879370264625004,
+    "f1": 0.7170029520070604,
+    "precision": 0.5928535480624056,
+    "recall": 0.9069212410501193,
+    "recall_at_90_precision": 0.043729309415659404
+  },
+  "test_metrics": {
+    "roc_auc": 0.8717954082930317,
+    "pr_auc": 0.966097352791627,
+    "brier": 0.135643784374071,
+    "f1": 0.9240193606937582,
+    "precision": 0.9230653000579214,
+    "recall": 0.9249753955636308,
+    "recall_at_90_precision": 0.9823857470916294
+  },
+  "business_metrics": {
+    "net_savings": 35514350.0,
+    "net_savings_per_1000_orders": 744208.0006705642,
+    "intervention_rate": 0.8727185096707948
+  },
+  "duration_seconds": 1.445,
+  "model_artifact": "artifacts/model_registry/logistic_regression__20260930T183713Z/model.pkl",
+  "training_device": "CPU",
+  "experiment_name": "cancellation-risk__pakistan_seed_v1__20260930T183713Z",
+  "run_name": "logistic_regression__20260930T183713Z",
+  "source": "packaged_starter_suite",
+  "training_scope": "starter_fast_suite_100k_train",
+  "training_rows": 100000,
+  "validation_rows": 30000,
+  "test_rows": 47721,
+  "reproducibility": {
+    "python": "3.13.5",
+    "sklearn": "1.8.0",
+    "xgboost": "3.1.3"
+  }
+}

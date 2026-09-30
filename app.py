@@ -42,9 +42,9 @@ else:
             "Developer": [
                 st.Page("views/4_Developer_Dashboard.py", title="Developer Dashboard", icon="🧭", default=True),
                 st.Page("views/5_DataOps.py", title="DataOps", icon="📦"),
-                st.Page("views/6_ModelOps.py", title="ModelOps", icon="🤖"),
+                st.Page("views/6_ModelOps.py", title="Model Registry", icon="🤖"),
                 st.Page("views/7_Model_Monitoring.py", title="Model Monitoring", icon="📈"),
-                st.Page("views/8_MLflow_Experiments.py", title="MLflow Experiments", icon="🧪"),
+                st.Page("views/8_MLflow_Experiments.py", title="Experiments", icon="🧪"),
                 st.Page("views/9_System_Status.py", title="System Status", icon="⚙️"),
             ]
         }

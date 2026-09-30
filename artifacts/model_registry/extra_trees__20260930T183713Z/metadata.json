@@ -1,0 +1,48 @@
+{
+  "model_id": "extra_trees__20260930T183713Z",
+  "model_family": "extra_trees",
+  "display_name": "Extra Trees",
+  "status": "READY",
+  "dataset_version": "pakistan_seed_v1",
+  "trained_at": "2026-09-30T18:37:22.968581+00:00",
+  "random_seed": 42,
+  "threshold": 0.4149999999999999,
+  "val_metrics": {
+    "roc_auc": 0.8184457449987109,
+    "pr_auc": 0.7693175196947956,
+    "brier": 0.1923662471930034,
+    "f1": 0.7218417512535159,
+    "precision": 0.5986611897155029,
+    "recall": 0.9088459465701748,
+    "recall_at_90_precision": 0.19439525752559858
+  },
+  "test_metrics": {
+    "roc_auc": 0.8947721852705935,
+    "pr_auc": 0.9718043423937704,
+    "brier": 0.09337357789144396,
+    "f1": 0.9401557065587365,
+    "precision": 0.9225817422144488,
+    "recall": 0.9584121937063114,
+    "recall_at_90_precision": 0.9855401620107502
+  },
+  "business_metrics": {
+    "net_savings": 36238700.0,
+    "net_savings_per_1000_orders": 759386.852748266,
+    "intervention_rate": 0.9097252781794178
+  },
+  "duration_seconds": 3.767,
+  "model_artifact": "artifacts/model_registry/extra_trees__20260930T183713Z/model.pkl",
+  "training_device": "CPU",
+  "experiment_name": "cancellation-risk__pakistan_seed_v1__20260930T183713Z",
+  "run_name": "extra_trees__20260930T183713Z",
+  "source": "packaged_starter_suite",
+  "training_scope": "starter_fast_suite_100k_train",
+  "training_rows": 100000,
+  "validation_rows": 30000,
+  "test_rows": 47721,
+  "reproducibility": {
+    "python": "3.13.5",
+    "sklearn": "1.8.0",
+    "xgboost": "3.1.3"
+  }
+}

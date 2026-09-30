@@ -8,6 +8,8 @@ from src.auth import require_role
 from src.data.ingestion import ingest_batch
 from src.database.duckdb_manager import dataframe
 from src.config import ROOT
+from src.models.registry import active_metadata
+from src.retraining import create_retraining_request, maybe_auto_trigger_enterprise
 
 require_role("developer")
 st.title("📦 DataOps")
@@ -73,8 +75,23 @@ if up is not None:
             st.session_state.last_pipeline_result = result
             if result["status"] == "success":
                 progress.progress(100, text="100% • Dataset version created")
-                stage.success(f"DataOps complete. **{result['dataset_version']}** is ready for optional ModelOps training.")
-                st.toast("Dataset version created. Production model was not changed.", icon="✅")
+                meta = active_metadata() or {}
+                request = create_retraining_request(
+                    meta.get("model_version", "unknown"),
+                    result["dataset_version"],
+                    "NEW_DATA_VERSION",
+                    {"dataset_version": result["dataset_version"], "snapshot_orders": result.get("snapshot_orders")},
+                    source="dataops",
+                )
+                try:
+                    request = maybe_auto_trigger_enterprise(request)
+                except Exception as trigger_exc:
+                    st.warning(f"Training request was queued, but automatic Colab Enterprise submission failed: {trigger_exc}")
+                stage.success(
+                    f"DataOps complete. **{result['dataset_version']}** is versioned and a training request **{request['request_id']}** has been queued. "
+                    "Production was not changed."
+                )
+                st.toast("Dataset version created and training request queued.", icon="✅")
             elif result["status"] == "duplicate":
                 progress.progress(100, text="Complete • No new data")
                 stage.warning(result["message"])

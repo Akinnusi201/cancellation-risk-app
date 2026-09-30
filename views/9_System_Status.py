@@ -5,7 +5,8 @@ import streamlit as st
 from src.auth import require_role
 from src.config import DB_PATH, MLFLOW_TRACKING_URI, ROOT
 from src.database.duckdb_manager import dataframe
-from src.models.registry import PRODUCTION_MODEL_PATH, active_metadata
+from src.models.registry import PRODUCTION_MODEL_PATH, active_metadata, list_registered_models
+from src.retraining import colab_enterprise_configuration
 
 require_role("developer")
 st.title("⚙️ System Status")
@@ -20,10 +21,11 @@ if workflow_dir.exists():
 dockerfile = ROOT / "Dockerfile"
 ci_template = ROOT / "GITHUB_ACTIONS_CI.yml"
 
+registry_models = list_registered_models()
 items = [
     ("Data Store", "Connected" if DB_PATH.exists() else "Ready on first use"),
-    ("Packaged Model", "Available" if PRODUCTION_MODEL_PATH.exists() else "Missing"),
-    ("Production Model", f"LightGBM {meta.get('model_version')}" if meta else "Missing"),
+    ("Production Model", (meta.get('model_display_name') or str(meta.get('model_name', 'Unknown')).replace('_', ' ').title()) if meta else "Missing"),
+    ("Registered Models", str(len(registry_models))),
     ("Production Dataset", meta.get("dataset_version") if meta else (latest.iloc[0].dataset_version if len(latest) else "None")),
     ("Inference", "Ready" if meta and PRODUCTION_MODEL_PATH.exists() else "Blocked"),
 ]
@@ -60,6 +62,15 @@ else:
             file_name="ci.yml",
             mime="text/yaml",
         )
+
+
+st.subheader("Training & Automation")
+auto_cfg = colab_enterprise_configuration()
+a1, a2, a3 = st.columns(3)
+a1.metric("Colab Notebook", "Packaged" if (ROOT / "notebooks" / "end_to_end_ml_workflow.ipynb").exists() else "Missing")
+a2.metric("Starter Model Suite", f"{len(registry_models)} models" if registry_models else "Missing")
+a3.metric("Colab Enterprise", "Configured" if auto_cfg.get("configured") else "Optional / not configured")
+st.caption("Ordinary Colab is the default classroom training path. Colab Enterprise automation activates only when cloud settings and credentials are configured.")
 
 st.subheader("Recent System Events")
 if len(last_event):

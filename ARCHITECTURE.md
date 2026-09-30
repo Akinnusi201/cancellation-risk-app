@@ -1,96 +1,136 @@
 # Architecture
 
-## Separation of operational concerns
+## System goal
 
-### Production inference
+The application separates operational scoring from model development. Operations always has a deployable model available; training jobs happen independently and cannot replace Production without explicit developer approval.
 
-`artifacts/production_model.pkl` is the only artifact required to perform model inference. `active_model.json` supplies version, lineage, threshold, and evaluation metadata. The application does not retrain at startup.
+## End-to-end lifecycle
 
-### DataOps
+```text
+Incoming item-level data
+        ↓
+DataOps
+  fingerprint / validate / quarantine
+  aggregate to order level
+  recompute historical customer features
+  create immutable dataset version
+        ↓
+Training request
+        ↓
+Google Colab / Colab Enterprise
+        ↓
+Five-model experiment suite
+  Logistic Regression
+  Random Forest
+  Extra Trees
+  LightGBM
+  XGBoost
+        ↓
+MLflow tracking + reproducibility metadata
+        ↓
+Qualification gates
+        ↓
+Best qualified model → Candidate
+        ↓
+Developer approval
+        ↓
+Production model
+        ↓
+Operations scoring
+        ↓
+Runtime + drift + observed-performance monitoring
+        ↓
+Degradation policy
+        ↓
+Retraining request
+```
 
-1. Receive a new immutable CSV batch.
-2. Calculate a SHA-256 fingerprint and reject exact re-uploads.
-3. Drop fully blank physical rows.
-4. Validate required schema, dates, numeric ranges, target status, IDs, and duplicates.
-5. Quarantine invalid records and inconsistent order statuses.
-6. Exclude order IDs already present in the latest cumulative version.
-7. Aggregate item records deterministically to one row per order.
-8. Append the new orders to the cumulative dataset.
-9. Recompute prior-customer cancellation history across the full chronological snapshot.
-10. Persist the cleaned snapshot, quarantine output, validation report, and lineage metadata as a new dataset version.
+## Production inference
 
-DataOps never trains or promotes a model.
+`artifacts/production_model.pkl` and `artifacts/active_model.json` define the active Production model. Streamlit startup loads these artifacts and never launches training.
 
-### ModelOps
+The initial Production model remains the packaged LightGBM model. The repository also includes a starter registry containing trained Logistic Regression, Random Forest, Extra Trees, and XGBoost artifacts for immediate comparison.
 
-1. Developer selects a versioned dataset.
-2. Logistic Regression is trained as a baseline on a temporal 70/15/15 split.
-3. A LightGBM candidate is trained on the exact same split and feature set.
-4. The validation period selects the F1 threshold for each model.
-5. Test metrics include ROC-AUC, PR-AUC, Brier score, F1, precision, recall, and recall at fixed precision.
-6. Evaluation artifacts and both experiment runs are logged to MLflow.
-7. The candidate is persisted separately from production.
-8. Developer compares the baseline, candidate, and active production metrics.
-9. An explicit promotion action replaces the production model artifact and metadata.
+## DataOps
 
-A failed or poor candidate does not affect operations scoring.
+DataOps owns trustworthy data products, not model training. It performs duplicate protection, raw preservation, validation, quarantine, deterministic order aggregation, cumulative customer-history recomputation, and immutable dataset versioning.
+
+A successful new dataset version creates a training request. Ordinary Colab requires a developer to open the notebook; an optional Colab Enterprise integration can submit a notebook execution when cloud configuration is present.
+
+## Model training
+
+Formal training runs in `notebooks/end_to_end_ml_workflow.ipynb` and uses `src/models/suite.py`.
+
+All five models receive the same time-based train / validation / test split and leakage-safe feature contract. Random Forest, Extra Trees, and Logistic Regression use CPU. LightGBM and XGBoost prefer a GPU and fall back to CPU if needed.
+
+The notebook stores full experiment output and MLflow tracking data in Google Drive by default so the Streamlit host does not become the computational bottleneck.
+
+## Experiment tracking and reproducibility
+
+Experiments and runs have deterministic readable identities such as:
+
+```text
+cancellation-risk__pakistan_seed_v1__20260930
+xgboost__20260930T180000Z
+```
+
+Each run stores the dataset version, timestamp, random seed, split sizes, hyperparameters, training device, technical metrics, business metrics, Git commit SHA, Python/library versions, and serialized model artifact.
+
+## Candidate selection
+
+Candidate selection is a two-stage process:
+
+1. Models must pass qualification gates for discrimination, calibration, high-precision recall, and positive business value.
+2. Qualified models receive a weighted score that combines ROC-AUC, PR-AUC, calibration, recall at 90% precision, and normalized business value.
+
+The best qualified model becomes Candidate. Candidate creation can be automated; Production deployment cannot.
+
+## Model registry and deployment
+
+The developer Model Registry exposes three plain-language states:
+
+- **Ready:** trained and available for comparison.
+- **Candidate:** proposed Production replacement.
+- **Production:** currently scoring orders.
+
+A developer must review the Candidate and click **Promote Candidate to Production**. The promotion step replaces the Production artifact and refreshes reference prediction/support artifacts used by monitoring and simulation.
+
+## Monitoring and degradation
+
+Monitoring separates:
+
+- runtime health and latency,
+- data/prediction drift,
+- live prototype business impact,
+- historical model/business evaluation,
+- observed production performance once final outcomes are available.
+
+Simulation remains excluded from technical drift monitoring because the simulation queue is deliberately risk-stratified. It can still contribute to prototype business impact after the Operations Manager makes a decision.
+
+### Hybrid retraining trigger
+
+Drift is an early warning, not proof that predictive performance has degraded. Severe unlabeled drift must persist across consecutive health checks. When at least 100 real final outcomes are available, observed ROC-AUC, Brier score, and business value can confirm degradation directly.
+
+A qualifying trigger creates a retraining request. The resulting model suite can automatically choose a new Candidate, but the developer still controls deployment.
+
+## Colab Enterprise option
+
+The classroom path uses ordinary Google Colab. The optional production-style path uses a Colab Enterprise Notebook Execution Job. When the required `COLAB_ENTERPRISE_*` settings and Google Application Default Credentials are available, the app can submit the training notebook programmatically.
 
 ## Role boundaries
 
 ### Operations Manager
 
-Can access production scoring, economic recommendations, and decision history. Cannot access ingestion, training, experiments, or promotion controls.
+Can use the Operations Dashboard, Score Order, and Decision History. Operations does not see DataOps, experiments, the model registry, or deployment controls.
 
 ### Developer
 
-Can access DataOps, candidate training/promotion, monitoring, MLflow experiments, and system status. Developer navigation is separate from the operations workflow.
-
-## Profit-aware decision layer
-
-The machine-learning model outputs `P(Cancellation)`. The action policy is calculated separately and presented in plain operational language.
-
-The business layer estimates how much money verification could save, then subtracts the cost of verifying the order and the expected cost of unnecessarily verifying an order that would have completed normally. Positive estimated net savings produces a **Verify before fulfillment** recommendation.
-
-The UI exposes four assumptions: loss from a late cancellation, loss prevented by verification, cost per verification, and extra cost of an unnecessary verification. These assumptions change the action recommendation, not the model probability.
-
-## Packaged baseline
-
-The raw Pakistan CSV is not required at runtime. A cleaned order-level compressed CSV is stored under `data/seed/`, while the pretrained model, reference sample, simulation queue, and evaluation artifacts are stored under `artifacts/`.
-
-A fresh DuckDB runtime registers the packaged dataset metadata on first use. This bootstrapping action does not perform data transformation or model training.
-
-## Runtime persistence
-
-Streamlit Community Cloud does not guarantee persistence for files created after deployment. The packaged baseline remains available after reboot because it is part of the repository. Runtime DuckDB history, uploaded batches, candidate artifacts, and local MLflow state may reset unless external persistent storage is configured.
-
-## Production monitoring
-
-Single-order inference records core model latency, probability, recommendation, policy inputs, and the model feature vector used for scoring. Monitoring computes runtime latency summaries, pipeline success rates, prediction PSI, numeric-feature PSI, categorical total-variation drift, and aggregate expected verification activity. At least 100 eligible production-like runtime observations are required before drift estimates are displayed.
-
-The packaged temporal holdout includes production probabilities and labels. This supports historical business-value evaluation and three simple what-if scenarios without retraining. These savings are counterfactual estimates because the source dataset does not contain warehouse labor, verification-cost, or verification-success measurements.
+Can manage DataOps, the model registry, experiments, monitoring, retraining, and system status.
 
 ## DevOps
 
-GitHub Actions runs tests and a packaged-inference smoke test on each push/pull request, then performs a Docker build. The Docker image uses Python 3.12, exposes Streamlit on port 8501, and includes a health check. Streamlit Community Cloud remains the classroom deployment target.
+GitHub Actions runs tests and packaged-inference checks and builds the Docker image. The Streamlit deployment remains lightweight because computational training is pushed to Colab. The application can still run locally or in Docker.
 
-## Currency presentation layer
-Production inference preserves the original Pakistan dataset's PKR-denominated features. A separate presentation-layer FX adapter retrieves the latest PKR→USD rate (State Bank of Pakistan via Frankfurter), caches it for one hour, and converts user-facing amounts to USD. Manual and batch USD inputs are converted back to PKR before feature preparation. This keeps the model feature contract stable while making the operational and economic UI easier to interpret for a U.S.-based audience.
+## Currency layer
 
-## Prototype customer order lifecycle
-
-For the class demo, Live Operations Simulation mimics an incoming customer order moving through a lightweight operational gate:
-
-```text
-Customer places order
-        ↓
-Automated cancellation-risk scoring
-        ↓
-Awaiting Operations Review
-        ↓
-Operations Manager decision
-   ┌───────────────┴───────────────┐
-   ↓                               ↓
-Release to fulfillment       Keep for verification
-```
-
-Live simulated orders are included in **prototype Business Impact** so the demo accumulates operational activity. Their actual manager decision controls whether verification savings are counted. Pending and released simulated orders do not claim verification savings. Live simulation remains excluded from production drift calculations because the demo queue is deliberately risk-stratified and is not representative production traffic. Historical Evaluation remains separate and preserves the natural temporal holdout distribution.
+Model features remain in the original PKR units used for training. The UI converts money to USD for presentation using the FX adapter. Manual USD inputs are converted back to PKR before inference, preserving the model feature contract.

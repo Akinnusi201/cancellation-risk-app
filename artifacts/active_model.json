@@ -1,6 +1,6 @@
 {
   "model_name": "lightgbm",
-  "model_version": "seed-1",
+  "model_version": "lightgbm__20260930T183713Z",
   "dataset_version": "pakistan_seed_v1",
   "threshold": 0.4099999999999999,
   "val_metrics": {
@@ -95,5 +95,16 @@
   "historical_simulation": {
     "strategy": "natural_temporal_holdout_sample",
     "representative_of_holdout_prevalence": true
+  },
+  "model_display_name": "LightGBM",
+  "experiment_name": "cancellation-risk__pakistan_seed_v1__20260930T183713Z",
+  "run_name": "lightgbm__20260930T183713Z",
+  "random_seed": 42,
+  "training_device": "CPU (existing production)",
+  "reproducibility": {
+    "python": "3.13.5",
+    "sklearn": "1.8.0",
+    "lightgbm": "4.6.0",
+    "xgboost": "3.1.3"
   }
 }

@@ -37,8 +37,7 @@ if not meta:
 
 m = meta.get("test_metrics", {})
 cols = st.columns(5)
-production_name = meta.get('model_display_name') or str(meta.get('model_name', 'Unknown')).replace('_', ' ').title()
-cols[0].metric("Production Model", production_name)
+cols[0].metric("Production Model", f"LightGBM {meta.get('model_version', '')}")
 cols[1].metric("ROC-AUC", f"{m.get('roc_auc', float('nan')):.3f}")
 cols[2].metric("PR-AUC", f"{m.get('pr_auc', float('nan')):.3f}")
 cols[3].metric("Brier Score", f"{m.get('brier', float('nan')):.3f}")

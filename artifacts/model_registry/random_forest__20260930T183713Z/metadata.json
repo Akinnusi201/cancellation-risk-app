@@ -1,0 +1,48 @@
+{
+  "model_id": "random_forest__20260930T183713Z",
+  "model_family": "random_forest",
+  "display_name": "Random Forest",
+  "status": "READY",
+  "dataset_version": "pakistan_seed_v1",
+  "trained_at": "2026-09-30T18:37:19.200783+00:00",
+  "random_seed": 42,
+  "threshold": 0.5299999999999999,
+  "val_metrics": {
+    "roc_auc": 0.8249629148813008,
+    "pr_auc": 0.776098932735806,
+    "brier": 0.19121156982507176,
+    "f1": 0.7243318379983572,
+    "precision": 0.614197696222877,
+    "recall": 0.8825929632766186,
+    "recall_at_90_precision": 0.23789360227885134
+  },
+  "test_metrics": {
+    "roc_auc": 0.9035992686409118,
+    "pr_auc": 0.9736873160560361,
+    "brier": 0.08538381725444952,
+    "f1": 0.937557597947645,
+    "precision": 0.9255243293747387,
+    "recall": 0.9499078910843617,
+    "recall_at_90_precision": 0.988745047568577
+  },
+  "business_metrics": {
+    "net_savings": 36393950.0,
+    "net_savings_per_1000_orders": 762640.137465686,
+    "intervention_rate": 0.9179187359862534
+  },
+  "duration_seconds": 4.068,
+  "model_artifact": "artifacts/model_registry/random_forest__20260930T183713Z/model.pkl",
+  "training_device": "CPU",
+  "experiment_name": "cancellation-risk__pakistan_seed_v1__20260930T183713Z",
+  "run_name": "random_forest__20260930T183713Z",
+  "source": "packaged_starter_suite",
+  "training_scope": "starter_fast_suite_100k_train",
+  "training_rows": 100000,
+  "validation_rows": 30000,
+  "test_rows": 47721,
+  "reproducibility": {
+    "python": "3.13.5",
+    "sklearn": "1.8.0",
+    "xgboost": "3.1.3"
+  }
+}

@@ -1,3 +1,20 @@
+# Changelog
+
+## v4.0 - Colab end-to-end MLOps workflow
+- Added a five-model starter registry: Logistic Regression, Random Forest, Extra Trees, LightGBM, and XGBoost.
+- Kept the existing LightGBM artifact as the initial Production model.
+- Added an end-to-end Google Colab notebook for DataOps input, five-model training, MLflow tracking, candidate selection, and candidate-package export.
+- Added GPU-preferred training for LightGBM and XGBoost with CPU fallback; scikit-learn Random Forest and Extra Trees remain CPU models.
+- Added reproducible experiment/run names, random seed, Git SHA, environment versions, device, data sizes, metrics, and business-value metadata.
+- Added qualification gates and weighted multi-metric candidate selection.
+- Rebuilt ModelOps as an intuitive model registry with Ready / Candidate / Production states and explicit manual deployment approval.
+- Added candidate-package import from Colab.
+- Added hybrid monitoring-driven retraining requests using sustained drift and labeled performance degradation.
+- Added outcome-feedback upload for observed runtime performance metrics.
+- Added optional Colab Enterprise notebook-execution triggering when Google Cloud configuration is present.
+- Reworked the Experiments page into a simple MLflow-style run browser and model-comparison interface.
+- Rewrote README.md as a first-deployment guide for technical and non-technical readers.
+
 ## v3.11 - Prototype customer order lifecycle
 - Live Operations Simulation now mimics a customer order entering a temporary Operations review state before fulfillment.
 - Added persistent prototype order states: awaiting review, released to fulfillment, and verification required.
