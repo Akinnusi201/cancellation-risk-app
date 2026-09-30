@@ -1,3 +1,10 @@
+
+## v3.9 - Operations business impact
+- Business Impact now uses only Operations Manager manual/batch scoring records.
+- Live simulation, historical evaluation, and holdout rows are excluded from live business totals.
+- Re-scored order IDs are deduplicated using the latest production-like score.
+- Historical economic evaluation moved under Model Evaluation as a labeled holdout backtest.
+- Live business metrics are explicitly expected values until downstream order outcomes are available.
 # Changelog
 
 

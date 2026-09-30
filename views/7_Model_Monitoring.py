@@ -21,6 +21,7 @@ from src.monitoring.metrics import (
     pipeline_reliability,
     population_stability_index,
     runtime_prediction_summary,
+    operations_business_summary,
 )
 from src.ui import common as ui_common
 from src.currency import fetch_pkr_to_usd_rate, format_usd, pkr_to_usd, rate_summary, usd_to_pkr
@@ -294,79 +295,161 @@ with drift_tab:
             st.caption("Numeric features use PSI. Categorical features use total-variation distance. These thresholds are monitoring heuristics for this prototype, not universal statistical cutoffs.")
 
 with business_tab:
-    st.subheader("Business value on historical test orders")
+    st.subheader("Operations business impact")
     st.caption(
-        "This section asks a simple question: if the model had been used on the historical test period, would verifying selected orders have been worth the estimated cost?"
+        "This tab uses only orders scored through the Operations Manager production workflow (manual and batch scoring). "
+        "Live simulation, historical evaluation, and the model holdout are excluded."
+    )
+
+    operations_orders, live_impact = operations_business_summary(meta.get("model_version"))
+    orders_scored = int(live_impact.get("orders_scored", 0))
+
+    if orders_scored == 0:
+        st.info(
+            "No Operations Manager production orders have been scored yet. Use Manual Order or Batch Scoring in the Operations workspace to populate this tab. "
+            "Simulation orders intentionally do not count toward business impact."
+        )
+        st.markdown("#### What will appear here")
+        st.caption(
+            "Once production-like orders are scored, this tab will accumulate expected verification volume, expected cancellations reached, expected cost prevented, "
+            "verification cost, and expected net savings. Each order uses the business assumptions that were stored when it was scored."
+        )
+    else:
+        if live_impact.get("scoring_records", orders_scored) > orders_scored:
+            st.caption(
+                f"{live_impact['scoring_records']:,} scoring events were logged for {orders_scored:,} unique orders. "
+                "Only the latest production-like score per order is counted so rescoring does not double-count expected value."
+            )
+        else:
+            st.caption(
+                "Values below are expected, not realized, because newly scored orders do not yet have final outcomes. "
+                "Underlying business calculations are stored in PKR and displayed using the current USD conversion rate."
+            )
+
+        a, b, c, d = st.columns(4)
+        a.metric("Orders Scored", f"{orders_scored:,}")
+        b.metric(
+            "Orders Recommended for Verification",
+            f"{live_impact['orders_verified']:,}",
+            f"{live_impact['verification_rate']:.1%} of scored orders",
+        )
+        c.metric(
+            "Expected Cancellations Reached",
+            f"{live_impact['expected_cancellations_reached']:.1f}",
+            help="Sum of predicted cancellation probabilities for orders recommended for verification. This is an expectation, not an observed outcome count.",
+        )
+        d.metric(
+            "Expected Net Savings",
+            format_usd(live_impact["expected_net_savings"], fx_rate),
+        )
+
+        e, f, g, h = st.columns(4)
+        e.metric("Expected Cost Prevented", format_usd(live_impact["expected_cost_prevented"], fx_rate))
+        f.metric("Verification Cost", format_usd(live_impact["verification_cost"], fx_rate))
+        g.metric(
+            "Expected Cost of Unnecessary Checks",
+            format_usd(live_impact["expected_unnecessary_check_cost"], fx_rate),
+        )
+        h.metric(
+            "Expected Net Savings / 1,000 Orders",
+            format_usd(live_impact["net_savings_per_1000_orders"], fx_rate),
+        )
+
+        st.caption(
+            "Expected cost prevented = predicted cancellation risk × loss if cancellation reaches fulfillment × preventable share, summed over orders recommended for verification. "
+            "Expected net savings subtracts verification cost and the expected cost of unnecessary checks."
+        )
+
+        mode_counts = live_impact.get("mode_counts", {})
+        if mode_counts:
+            rows = []
+            for mode, count in sorted(mode_counts.items(), key=lambda x: (-x[1], x[0])):
+                rows.append({
+                    "Operations scoring type": MODE_LABELS.get(mode, mode),
+                    "Unique orders counted": int(count),
+                })
+            st.markdown("#### Operations scoring mix")
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        if live_impact.get("first_scored_at") is not None and live_impact.get("last_scored_at") is not None:
+            st.caption(
+                f"Business-impact window: {pd.Timestamp(live_impact['first_scored_at']).strftime('%Y-%m-%d %H:%M')} "
+                f"to {pd.Timestamp(live_impact['last_scored_at']).strftime('%Y-%m-%d %H:%M')} (runtime database time)."
+            )
+
+
+with evaluation_tab:
+    st.subheader("Packaged production evaluation")
+
+    st.markdown("#### Historical business backtest")
+    st.caption(
+        "This is retrospective model evaluation on the final labeled test period. It is intentionally separate from live Operations Business Impact."
     )
     if not predictions_path.exists():
         st.warning("The production holdout probability artifact is unavailable for this model version.")
     else:
         holdout = pd.read_csv(predictions_path)
-        policy = business_policy_controls("monitoring")
+        policy = business_policy_controls("historical_backtest")
         impact = evaluate_business_policy(holdout["is_canceled"], holdout["probability"], policy)
 
         a, b, c, d = st.columns(4)
-        a.metric("Historical Orders", f"{impact['orders']:,}")
-        b.metric("Orders Sent for Verification", f"{impact['interventions']:,}", f"{impact['intervention_rate']:.1%} of orders")
-        c.metric("Cancellations Reached", f"{impact['cancellations_intervened']:,}", f"{impact['cancellation_capture_rate']:.1%} of cancellations")
+        a.metric("Historical Test Orders", f"{impact['orders']:,}")
+        b.metric("Orders That Would Be Verified", f"{impact['interventions']:,}", f"{impact['intervention_rate']:.1%} of orders")
+        c.metric("Actual Cancellations Reached", f"{impact['cancellations_intervened']:,}", f"{impact['cancellation_capture_rate']:.1%} of cancellations")
         d.metric("Unnecessary Verifications", f"{impact['false_interventions']:,}", f"{impact['false_intervention_rate']:.1%} of verifications")
 
         e, f, g, h = st.columns(4)
         e.metric("Estimated Cost Prevented", format_usd(impact["estimated_avoided_cost"], fx_rate))
         f.metric("Verification Cost", format_usd(impact["intervention_cost_total"], fx_rate))
         g.metric("Extra Cost of Unnecessary Checks", format_usd(impact["false_intervention_cost_total"], fx_rate))
-        h.metric("Net Savings / 1,000 Orders", format_usd(impact["net_savings_per_1000_orders"], fx_rate))
-
+        h.metric("Estimated Net Savings / 1,000 Orders", format_usd(impact["net_savings_per_1000_orders"], fx_rate))
         st.metric("Estimated Net Savings on Historical Test Orders", format_usd(impact["net_savings"], fx_rate))
         st.caption(
-            "These are estimated, not observed, savings. The source data does not include the retailer's real warehouse, verification, or customer-delay costs, so the values above depend on the business assumptions you choose."
+            "This backtest uses known historical outcomes, so it can count actual canceled/completed orders in the test period. Savings are still estimated because the source data does not contain the retailer's real warehouse or verification costs."
         )
 
-        st.markdown("#### Simple what-if scenarios")
-        st.caption(
-            "Instead of a large sensitivity grid, compare three easy cases. 'Current assumptions' uses the values above. Conservative assumes less preventable loss and higher checking costs; Favorable assumes more preventable loss and lower checking costs."
-        )
+        with st.expander("Simple historical what-if scenarios", expanded=False):
+            st.caption(
+                "Compare three assumption sets on the same historical test orders. This changes the business policy only; it does not retrain the model."
+            )
+            base = policy
+            scenarios = [
+                (
+                    "Conservative",
+                    {
+                        "avoidable_fulfillment_cost": base["avoidable_fulfillment_cost"] * 0.75,
+                        "intervention_effectiveness": max(0.05, base["intervention_effectiveness"] - 0.15),
+                        "intervention_cost": base["intervention_cost"] * 1.25,
+                        "false_positive_friction_cost": base["false_positive_friction_cost"] * 1.25,
+                    },
+                ),
+                ("Current assumptions", dict(base)),
+                (
+                    "Favorable",
+                    {
+                        "avoidable_fulfillment_cost": base["avoidable_fulfillment_cost"] * 1.25,
+                        "intervention_effectiveness": min(0.95, base["intervention_effectiveness"] + 0.15),
+                        "intervention_cost": base["intervention_cost"] * 0.75,
+                        "false_positive_friction_cost": base["false_positive_friction_cost"] * 0.75,
+                    },
+                ),
+            ]
+            rows = []
+            for name, scenario_policy in scenarios:
+                result = evaluate_business_policy(holdout["is_canceled"], holdout["probability"], scenario_policy)
+                rows.append({
+                    "Scenario": name,
+                    "Loss per late cancellation": format_usd(scenario_policy["avoidable_fulfillment_cost"], fx_rate),
+                    "Loss prevented by verification": f"{scenario_policy['intervention_effectiveness']:.0%}",
+                    "Cost per verification": format_usd(scenario_policy["intervention_cost"], fx_rate),
+                    "Extra cost if unnecessary": format_usd(scenario_policy["false_positive_friction_cost"], fx_rate),
+                    "Orders verified": f"{result['intervention_rate']:.1%}",
+                    "Cancellations reached": f"{result['cancellation_capture_rate']:.1%}",
+                    "Net savings / 1,000 orders": format_usd(result["net_savings_per_1000_orders"], fx_rate),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-        base = policy
-        scenarios = [
-            (
-                "Conservative",
-                {
-                    "avoidable_fulfillment_cost": base["avoidable_fulfillment_cost"] * 0.75,
-                    "intervention_effectiveness": max(0.05, base["intervention_effectiveness"] - 0.15),
-                    "intervention_cost": base["intervention_cost"] * 1.25,
-                    "false_positive_friction_cost": base["false_positive_friction_cost"] * 1.25,
-                },
-            ),
-            ("Current assumptions", dict(base)),
-            (
-                "Favorable",
-                {
-                    "avoidable_fulfillment_cost": base["avoidable_fulfillment_cost"] * 1.25,
-                    "intervention_effectiveness": min(0.95, base["intervention_effectiveness"] + 0.15),
-                    "intervention_cost": base["intervention_cost"] * 0.75,
-                    "false_positive_friction_cost": base["false_positive_friction_cost"] * 0.75,
-                },
-            ),
-        ]
-
-        rows = []
-        for name, scenario_policy in scenarios:
-            result = evaluate_business_policy(holdout["is_canceled"], holdout["probability"], scenario_policy)
-            rows.append({
-                "Scenario": name,
-                "Loss per late cancellation": format_usd(scenario_policy["avoidable_fulfillment_cost"], fx_rate),
-                "Loss prevented by verification": f"{scenario_policy['intervention_effectiveness']:.0%}",
-                "Cost per verification": format_usd(scenario_policy["intervention_cost"], fx_rate),
-                "Extra cost if unnecessary": format_usd(scenario_policy["false_positive_friction_cost"], fx_rate),
-                "Orders verified": f"{result['intervention_rate']:.1%}",
-                "Cancellations reached": f"{result['cancellation_capture_rate']:.1%}",
-                "Net savings / 1,000 orders": format_usd(result["net_savings_per_1000_orders"], fx_rate),
-            })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-with evaluation_tab:
-    st.subheader("Packaged production evaluation")
+    st.divider()
     comparison_path = eval_dir / "baseline_comparison.csv"
     if comparison_path.exists():
         comparison = pd.read_csv(comparison_path)

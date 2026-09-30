@@ -36,6 +36,7 @@ check("Fast manual experiment logging", "log_model_artifact=False" in train_text
 check("Callback isolation", "n_estimators=70" in train_text and "stage_callback=stage_callback" in train_text, "manual callbacks stay outside LightGBM hyperparameters")
 check("Balanced live simulation", (ROOT / "artifacts/demo_orders.csv.gz").exists() and (ROOT / "artifacts/historical_demo_orders.csv.gz").exists(), "separate live and historical queues")
 check("Production-only drift population", "PRODUCTION_SCORING_MODES" in monitor_metrics_text and "split_monitoring_population" in monitor_metrics_text, "simulation/evaluation traffic excluded from drift")
+check("Operations-only business impact", "OPERATIONS_BUSINESS_MODES" in monitor_metrics_text and "operations_business_summary" in monitor_text and "Historical business backtest" in monitor_text, "live business impact uses Operations Manager scoring; holdout economics moved to Model Evaluation")
 check("Minimum drift sample guard", "MIN_MONITORING_OBSERVATIONS = 100" in monitor_metrics_text and "INSUFFICIENT RUNTIME DATA" in monitor_text, "no drift label before 100 eligible production scores")
 check("Batch prediction telemetry", '"batch"' in predict_text and "executemany" in predict_text, "batch predictions are persisted for production monitoring")
 check("Live PKR to USD conversion", "api.frankfurter.dev" in currency_text and "providers/sbp" in currency_text, "src/currency.py")

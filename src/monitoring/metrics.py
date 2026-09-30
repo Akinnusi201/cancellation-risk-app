@@ -19,6 +19,125 @@ PRODUCTION_SCORING_MODES = {
 MIN_MONITORING_OBSERVATIONS = 100
 
 
+# Business-impact reporting is intentionally narrower than technical runtime
+# monitoring. It represents orders scored from the Operations Manager workflow,
+# not simulations, historical evaluation, or generic API traffic.
+OPERATIONS_BUSINESS_MODES = {
+    "manual",
+    "batch",
+    "production_manual",
+    "production_batch",
+}
+
+
+def summarize_operations_business(predictions: pd.DataFrame):
+    """Summarize expected business value from Operations Manager scoring only.
+
+    Business impact uses the economic assumptions persisted with each prediction,
+    so changing today's UI assumptions does not rewrite prior results. If an order
+    is rescored, only its latest production-like score is counted to avoid
+    double-counting the same order's expected value.
+    """
+    empty_summary = {
+        "scoring_records": 0,
+        "orders_scored": 0,
+        "orders_verified": 0,
+        "verification_rate": 0.0,
+        "expected_cancellations_reached": 0.0,
+        "expected_cost_prevented": 0.0,
+        "verification_cost": 0.0,
+        "expected_unnecessary_check_cost": 0.0,
+        "expected_net_savings": 0.0,
+        "net_savings_per_1000_orders": 0.0,
+        "average_net_savings_per_verified_order": 0.0,
+        "mode_counts": {},
+        "first_scored_at": None,
+        "last_scored_at": None,
+    }
+    if predictions is None or predictions.empty:
+        return pd.DataFrame(), empty_summary
+
+    df = predictions.copy()
+    if "scoring_mode" not in df.columns:
+        return pd.DataFrame(), empty_summary
+    df["monitoring_mode"] = df["scoring_mode"].map(normalize_scoring_mode)
+    df = df[df["monitoring_mode"].isin(OPERATIONS_BUSINESS_MODES)].copy()
+    if df.empty:
+        return df, empty_summary
+
+    scoring_records = len(df)
+    if "predicted_at" in df.columns:
+        df["predicted_at"] = pd.to_datetime(df["predicted_at"], errors="coerce")
+        df = df.sort_values("predicted_at")
+
+    # Re-scoring the same order is operationally one order, not a second source
+    # of savings. Keep the newest production-like prediction per order.
+    if "order_id" in df.columns:
+        order_key = df["order_id"].astype("string")
+        if "prediction_id" in df.columns:
+            order_key = order_key.fillna(df["prediction_id"].astype("string"))
+        df = df.assign(_order_key=order_key).drop_duplicates("_order_key", keep="last")
+
+    verified = df["recommendation"].eq("Hold for Verification")
+    verified_df = df.loc[verified].copy()
+    orders = int(len(df))
+    verified_n = int(verified.sum())
+
+    def numeric_sum(column):
+        if column not in verified_df.columns:
+            return 0.0
+        return float(pd.to_numeric(verified_df[column], errors="coerce").fillna(0.0).sum())
+
+    probs = pd.to_numeric(verified_df.get("probability", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    expected_cancellations = float(probs.sum())
+    cost_prevented = numeric_sum("expected_avoidable_cost")
+    verification_cost = numeric_sum("intervention_cost")
+    unnecessary_cost = numeric_sum("expected_false_positive_cost")
+    net_savings = numeric_sum("net_expected_savings")
+
+    summary = {
+        "scoring_records": int(scoring_records),
+        "orders_scored": orders,
+        "orders_verified": verified_n,
+        "verification_rate": float(verified_n / orders) if orders else 0.0,
+        "expected_cancellations_reached": expected_cancellations,
+        "expected_cost_prevented": cost_prevented,
+        "verification_cost": verification_cost,
+        "expected_unnecessary_check_cost": unnecessary_cost,
+        "expected_net_savings": net_savings,
+        "net_savings_per_1000_orders": float(net_savings / orders * 1000.0) if orders else 0.0,
+        "average_net_savings_per_verified_order": float(net_savings / verified_n) if verified_n else 0.0,
+        "mode_counts": {str(k): int(v) for k, v in df["monitoring_mode"].value_counts().to_dict().items()},
+        "first_scored_at": df["predicted_at"].min() if "predicted_at" in df.columns else None,
+        "last_scored_at": df["predicted_at"].max() if "predicted_at" in df.columns else None,
+    }
+    return df.drop(columns=["_order_key"], errors="ignore"), summary
+
+
+def operations_business_summary(model_version=None):
+    """Load persisted Operations Manager predictions and summarize business value."""
+    from src.database.duckdb_manager import dataframe
+
+    where = "" if model_version is None else " WHERE model_version = ?"
+    params = [] if model_version is None else [str(model_version)]
+    try:
+        predictions = dataframe(
+            f"""
+            SELECT prediction_id, order_id, predicted_at, probability, recommendation,
+                   expected_avoidable_cost, expected_false_positive_cost,
+                   net_expected_savings, intervention_cost, scoring_mode
+            FROM predictions{where}
+            ORDER BY predicted_at
+            """,
+            params,
+        )
+    except Exception:
+        # Rolling-upgrade compatibility: return an empty live-impact population
+        # instead of breaking the monitoring page if an older DB lacks fields.
+        predictions = pd.DataFrame()
+    return summarize_operations_business(predictions)
+
+
 def population_stability_index(reference, current, bins=10):
     """Population Stability Index using reference quantile bins."""
     ref = pd.Series(reference).dropna().astype(float)
