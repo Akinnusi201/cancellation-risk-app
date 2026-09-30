@@ -35,7 +35,8 @@ def show_score(sc, row):
     else:
         st.success(f"Recommended action: **{sc['recommendation']}**")
     st.caption(
-        f"Technical risk threshold: {sc['threshold']:.1%}. Economic recommendation uses the configurable cost policy above."
+        f"Technical risk threshold: {sc['threshold']:.1%}. Economic recommendation uses the configurable cost policy above. "
+        f"Core model latency: {sc.get('latency_ms', 0):.1f} ms."
     )
     st.markdown("#### Key risk drivers")
     if sc["reasons"]:
@@ -63,7 +64,7 @@ with tabs[0]:
         score_key = f"sim_score_{idx}_{mode}_{policy}"
         if st.session_state.get("sim_score_key") != score_key:
             st.session_state.sim_score_key = score_key
-            st.session_state.current_score = score_order(row, reference, policy=policy)
+            st.session_state.current_score = score_order(row, reference, policy=policy, scoring_mode='simulation')
             st.session_state.decision_made = False
         sc = st.session_state.current_score
 
@@ -128,7 +129,7 @@ with tabs[1]:
             "category_name_1": category,
             "customer_cancel_rate": prior,
         }]))
-        sc = score_order(manual, reference, policy=policy)
+        sc = score_order(manual, reference, policy=policy, scoring_mode='manual')
         show_score(sc, manual)
 
 with tabs[2]:

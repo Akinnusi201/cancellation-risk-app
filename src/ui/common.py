@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -25,17 +26,22 @@ FEATURE_LABELS = {
 
 
 @st.cache_data(show_spinner=False)
+def _read_cached_csv(path: str, mtime_ns: int):
+    # mtime_ns is intentionally part of the cache key so model promotion refreshes
+    # the reference and simulation data without requiring a server restart.
+    return pd.read_csv(path, low_memory=False, parse_dates=["created_at"])
+
+
 def load_reference():
     if not REFERENCE_PATH.exists():
         return pd.DataFrame()
-    return pd.read_csv(REFERENCE_PATH, low_memory=False, parse_dates=["created_at"])
+    return _read_cached_csv(str(REFERENCE_PATH), REFERENCE_PATH.stat().st_mtime_ns)
 
 
-@st.cache_data(show_spinner=False)
 def load_demo_orders():
     if not DEMO_PATH.exists():
         return pd.DataFrame()
-    return pd.read_csv(DEMO_PATH, low_memory=False, parse_dates=["created_at"])
+    return _read_cached_csv(str(DEMO_PATH), DEMO_PATH.stat().st_mtime_ns)
 
 
 def business_policy_controls(key_prefix="policy"):

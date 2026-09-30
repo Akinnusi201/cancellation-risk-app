@@ -1,10 +1,13 @@
+import json
+import time
 import uuid
+
 import numpy as np
 import pandas as pd
 
 from src.business import economic_decision
 from src.config import FEATURES
-from src.database.duckdb_manager import connect, now
+from src.database.duckdb_manager import connect, log_event, now
 from src.models.registry import load_active_model
 
 
@@ -29,11 +32,38 @@ def _actual_outcome(row: pd.DataFrame):
     return "Canceled" if int(row.iloc[0]["is_canceled"]) == 1 else "Completed"
 
 
-def score_order(row: pd.DataFrame, reference: pd.DataFrame, policy=None, persist=True, explain=True):
+def _feature_payload(row: pd.DataFrame):
+    payload = {}
+    first = row.iloc[0]
+    for feature in FEATURES:
+        value = first.get(feature)
+        if pd.isna(value):
+            payload[feature] = None
+        elif isinstance(value, (np.integer,)):
+            payload[feature] = int(value)
+        elif isinstance(value, (np.floating,)):
+            payload[feature] = float(value)
+        else:
+            payload[feature] = value.item() if hasattr(value, "item") else value
+    return json.dumps(payload, default=str)
+
+
+def score_order(
+    row: pd.DataFrame,
+    reference: pd.DataFrame,
+    policy=None,
+    persist=True,
+    explain=True,
+    scoring_mode="single",
+):
     model, meta = load_active_model()
     if model is None:
         raise RuntimeError("No packaged production model is available.")
+
+    start = time.perf_counter()
     prob = float(model.predict_proba(row[FEATURES])[:, 1][0])
+    latency_ms = (time.perf_counter() - start) * 1000.0
+
     threshold = float(meta.get("threshold", 0.5))
     economics = economic_decision(prob, policy)
     reasons = explain_by_baseline(model, row, reference) if explain else []
@@ -48,16 +78,31 @@ def score_order(row: pd.DataFrame, reference: pd.DataFrame, policy=None, persist
                 (prediction_id, order_id, predicted_at, model_name, model_version, dataset_version,
                  probability, threshold, recommendation, actual_outcome, expected_avoidable_cost,
                  expected_false_positive_cost, net_expected_savings, avoidable_fulfillment_cost,
-                 intervention_effectiveness, intervention_cost, false_positive_friction_cost)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 intervention_effectiveness, intervention_cost, false_positive_friction_cost,
+                 latency_ms, scoring_mode, feature_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    prediction_id, str(row.iloc[0]["order_id"]), now(), meta.get("model_name", "lightgbm"),
-                    str(meta.get("model_version", "unknown")), meta.get("dataset_version", "unknown"), prob,
-                    threshold, economics["recommendation"], actual, economics["expected_avoidable_cost"],
-                    economics["expected_false_positive_cost"], economics["net_expected_savings"],
-                    economics["policy"]["avoidable_fulfillment_cost"], economics["policy"]["intervention_effectiveness"],
-                    economics["policy"]["intervention_cost"], economics["policy"]["false_positive_friction_cost"],
+                    prediction_id,
+                    str(row.iloc[0]["order_id"]),
+                    now(),
+                    meta.get("model_name", "lightgbm"),
+                    str(meta.get("model_version", "unknown")),
+                    meta.get("dataset_version", "unknown"),
+                    prob,
+                    threshold,
+                    economics["recommendation"],
+                    actual,
+                    economics["expected_avoidable_cost"],
+                    economics["expected_false_positive_cost"],
+                    economics["net_expected_savings"],
+                    economics["policy"]["avoidable_fulfillment_cost"],
+                    economics["policy"]["intervention_effectiveness"],
+                    economics["policy"]["intervention_cost"],
+                    economics["policy"]["false_positive_friction_cost"],
+                    latency_ms,
+                    scoring_mode,
+                    _feature_payload(row),
                 ],
             )
     return {
@@ -68,16 +113,21 @@ def score_order(row: pd.DataFrame, reference: pd.DataFrame, policy=None, persist
         "recommendation": economics["recommendation"],
         "reasons": reasons,
         "actual_outcome": actual,
+        "latency_ms": latency_ms,
         "meta": meta,
         **economics,
     }
 
 
-def score_batch(rows: pd.DataFrame, policy=None):
+def score_batch(rows: pd.DataFrame, policy=None, log_runtime=True):
     model, meta = load_active_model()
     if model is None:
         raise RuntimeError("No packaged production model is available.")
+    start = time.perf_counter()
     probs = model.predict_proba(rows[FEATURES])[:, 1]
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    per_order_ms = elapsed_ms / max(len(rows), 1)
+
     threshold = float(meta.get("threshold", 0.5))
     output = rows.copy()
     output["cancellation_probability"] = probs
@@ -87,6 +137,21 @@ def score_batch(rows: pd.DataFrame, policy=None):
     output["expected_false_positive_cost"] = [x["expected_false_positive_cost"] for x in economic]
     output["net_expected_savings"] = [x["net_expected_savings"] for x in economic]
     output["recommendation"] = [x["recommendation"] for x in economic]
+    output["inference_latency_ms_per_order"] = per_order_ms
+
+    if log_runtime:
+        log_event(
+            f"event_{uuid.uuid4().hex[:10]}",
+            "BATCH_SCORING",
+            "SUCCESS",
+            f"Scored {len(rows):,} orders",
+            {
+                "orders": len(rows),
+                "total_latency_ms": elapsed_ms,
+                "latency_ms_per_order": per_order_ms,
+                "model_version": meta.get("model_version"),
+            },
+        )
     return output
 
 
@@ -102,11 +167,21 @@ def record_decision(scored, order_id, decision):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                decision_id, scored["prediction_id"], str(order_id), now(), decision, scored["recommendation"],
-                scored["probability"], scored["threshold"], scored.get("actual_outcome"),
-                scored["meta"].get("model_name", "lightgbm"), str(scored["meta"].get("model_version", "unknown")),
-                scored.get("net_expected_savings"), scored.get("policy", {}).get("avoidable_fulfillment_cost"),
-                scored.get("policy", {}).get("intervention_effectiveness"), scored.get("policy", {}).get("intervention_cost"),
+                decision_id,
+                scored["prediction_id"],
+                str(order_id),
+                now(),
+                decision,
+                scored["recommendation"],
+                scored["probability"],
+                scored["threshold"],
+                scored.get("actual_outcome"),
+                scored["meta"].get("model_name", "lightgbm"),
+                str(scored["meta"].get("model_version", "unknown")),
+                scored.get("net_expected_savings"),
+                scored.get("policy", {}).get("avoidable_fulfillment_cost"),
+                scored.get("policy", {}).get("intervention_effectiveness"),
+                scored.get("policy", {}).get("intervention_cost"),
                 scored.get("policy", {}).get("false_positive_friction_cost"),
             ],
         )

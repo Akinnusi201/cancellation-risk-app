@@ -1,4 +1,4 @@
-import io, uuid
+import io, uuid, time
 from pathlib import Path
 import pandas as pd
 from src.config import ORDER_ID_CANDIDATES
@@ -57,6 +57,8 @@ def _update_batch(batch_id, *, raw_rows=0, valid_rows=0, quarantined_rows=0,
 
 
 def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_mode="full", sample_orders=5000):
+    started = time.perf_counter()
+
     def progress(step, message):
         if progress_callback:
             progress_callback(step, message)
@@ -106,6 +108,11 @@ def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_m
             progress(20, "Demo sample ready")
     except Exception as e:
         _update_batch(batch_id, status="FAILED", notes=str(e))
+        log_event(
+            f"event_{uuid.uuid4().hex[:10]}", "DATA_INGESTION", "FAILED",
+            f"Failed to read batch {filename}: {e}",
+            {"batch_id": batch_id, "duration_seconds": time.perf_counter() - started},
+        )
         raise
 
     progress(22, "Validating schema and data quality")
@@ -119,6 +126,11 @@ def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_m
         with connect() as con:
             for a, b, c, d in checks:
                 con.execute("INSERT INTO validation_results VALUES (?, ?, ?, ?, ?, ?)", [batch_id, a, b, c, d, now()])
+        log_event(
+            f"event_{uuid.uuid4().hex[:10]}", "DATA_INGESTION", "FAILED",
+            f"Schema validation failed for {filename}",
+            {"batch_id": batch_id, "duration_seconds": time.perf_counter() - started},
+        )
         return {"status": "failed", "batch_id": batch_id, "checks": checks, "message": "Required schema validation failed"}
 
     progress(34, "Checking order consistency")
@@ -158,6 +170,11 @@ def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_m
         with connect() as con:
             for a, b, c, d in checks:
                 con.execute("INSERT INTO validation_results VALUES (?, ?, ?, ?, ?, ?)", [batch_id, a, b, c, d, now()])
+        log_event(
+            f"event_{uuid.uuid4().hex[:10]}", "DATA_INGESTION", "NO_NEW_DATA",
+            f"No new valid records remained for {filename}",
+            {"batch_id": batch_id, "duration_seconds": time.perf_counter() - started},
+        )
         return {
             "status": "duplicate", "batch_id": batch_id,
             "message": "No new valid records remained after validation and duplicate-order checks. Retraining was not triggered.",
@@ -182,7 +199,10 @@ def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_m
     with connect() as con:
         for a, b, c, d in checks:
             con.execute("INSERT INTO validation_results VALUES (?, ?, ?, ?, ?, ?)", [batch_id, a, b, c, d, now()])
-    log_event(f"event_{uuid.uuid4().hex[:10]}", "DATA_INGESTION", "SUCCESS", f"Created dataset {version}", {"batch_id": batch_id})
+    log_event(
+        f"event_{uuid.uuid4().hex[:10]}", "DATA_INGESTION", "SUCCESS", f"Created dataset {version}",
+        {"batch_id": batch_id, "duration_seconds": time.perf_counter() - started, "orders_in_batch": len(orders)},
+    )
     return {
         "status": "success", "batch_id": batch_id, "dataset_version": version,
         "raw_rows": len(df), "source_rows": original_rows, "sampled_orders": sampled_orders, "run_mode": run_mode, "valid_rows": len(valid), "quarantined_rows": len(quarantine),

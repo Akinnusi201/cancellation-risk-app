@@ -1,7 +1,8 @@
 import json
 from datetime import datetime, timezone
+
 import duckdb
-import pandas as pd
+
 from src.config import DB_PATH
 
 SCHEMA_SQL = """
@@ -53,7 +54,10 @@ CREATE TABLE IF NOT EXISTS predictions (
     avoidable_fulfillment_cost DOUBLE,
     intervention_effectiveness DOUBLE,
     intervention_cost DOUBLE,
-    false_positive_friction_cost DOUBLE
+    false_positive_friction_cost DOUBLE,
+    latency_ms DOUBLE,
+    scoring_mode VARCHAR,
+    feature_json VARCHAR
 );
 CREATE TABLE IF NOT EXISTS manager_decisions (
     decision_id VARCHAR PRIMARY KEY,
@@ -83,6 +87,7 @@ CREATE TABLE IF NOT EXISTS system_events (
 );
 """
 
+
 def connect():
     con = duckdb.connect(str(DB_PATH))
     con.execute(SCHEMA_SQL)
@@ -96,6 +101,9 @@ def connect():
         "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS intervention_effectiveness DOUBLE",
         "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS intervention_cost DOUBLE",
         "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS false_positive_friction_cost DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS latency_ms DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS scoring_mode VARCHAR",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS feature_json VARCHAR",
         "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS avoidable_fulfillment_cost DOUBLE",
         "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS intervention_effectiveness DOUBLE",
         "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS intervention_cost DOUBLE",
@@ -105,18 +113,26 @@ def connect():
         con.execute(sql)
     return con
 
+
 def now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
+
 def log_event(event_id, event_type, status, message, metadata=None):
     with connect() as con:
-        con.execute("INSERT OR REPLACE INTO system_events VALUES (?, ?, ?, ?, ?, ?)",
-                    [event_id, now(), event_type, status, message, json.dumps(metadata or {})])
+        con.execute(
+            "INSERT OR REPLACE INTO system_events VALUES (?, ?, ?, ?, ?, ?)",
+            [event_id, now(), event_type, status, message, json.dumps(metadata or {}, default=str)],
+        )
+
 
 def dataframe(query, params=None):
     with connect() as con:
         return con.execute(query, params or []).df()
 
+
 def table_exists(name):
     with connect() as con:
-        return con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [name]).fetchone()[0] > 0
+        return con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [name]
+        ).fetchone()[0] > 0

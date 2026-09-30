@@ -56,10 +56,11 @@ try:
     if exp:
         runs = mlflow.search_runs([exp.experiment_id], max_results=50, order_by=["start_time DESC"])
         keep = [c for c in [
-            "run_id", "tags.mlflow.runName", "params.run_source", "params.dataset_version",
+            "run_id", "tags.mlflow.runName", "params.run_source", "params.model_type", "params.dataset_version",
             "params.model__n_estimators", "params.model__learning_rate", "params.model__num_leaves",
             "metrics.val_roc_auc", "metrics.val_pr_auc", "metrics.val_brier",
             "metrics.test_roc_auc", "metrics.test_pr_auc", "metrics.test_brier",
+            "metrics.test_recall_at_90_precision",
         ] if c in runs.columns]
         st.dataframe(runs[keep], use_container_width=True, hide_index=True)
     else:

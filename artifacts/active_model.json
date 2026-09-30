@@ -9,7 +9,13 @@
     "brier": 0.17594895635102903,
     "f1": 0.7243321469081238,
     "precision": 0.6081973135406745,
-    "recall": 0.895286439448876
+    "recall": 0.895286439448876,
+    "recall_at_80_precision": 0.49562484892434133,
+    "precision_at_80_precision": 0.8001873243833906,
+    "threshold_at_80_precision": 0.7730770749196189,
+    "recall_at_90_precision": 0.22083635484650713,
+    "precision_at_90_precision": 0.9000985221674876,
+    "threshold_at_90_precision": 0.8822717276243925
   },
   "test_metrics": {
     "roc_auc": 0.9110529367473508,
@@ -17,7 +23,13 @@
     "brier": 0.09227790783332714,
     "f1": 0.9404569925819336,
     "precision": 0.9248542220704126,
-    "recall": 0.9565952507128977
+    "recall": 0.9565952507128977,
+    "recall_at_80_precision": 1.0,
+    "precision_at_80_precision": 0.8303891368579871,
+    "threshold_at_80_precision": 0.003983654624498591,
+    "recall_at_90_precision": 0.9886945769298711,
+    "precision_at_90_precision": 0.9000045943214188,
+    "threshold_at_90_precision": 0.1425142010126462
   },
   "model_artifact": "artifacts/production_model.pkl",
   "evaluation_dir": "artifacts/production_evaluation",
@@ -27,5 +39,43 @@
     "train": 0.3966429270658392,
     "validation": 0.43346605196982396,
     "test": 0.8303891368579871
+  },
+  "reference_prediction_summary": {
+    "holdout_rows": 47721,
+    "mean_probability": 0.7068751367510978,
+    "median_probability": 0.801914130388157,
+    "p95_probability": 0.9527121008237863
+  },
+  "baseline": {
+    "model_name": "logistic_regression",
+    "threshold": 0.285,
+    "val_metrics": {
+      "roc_auc": 0.8014699823088084,
+      "pr_auc": 0.7349255071425739,
+      "brier": 0.18803236579798857,
+      "f1": 0.7174211248285323,
+      "precision": 0.5920196207904914,
+      "recall": 0.9102248005801306,
+      "recall_at_80_precision": 0.3353637901861252,
+      "precision_at_80_precision": 0.8000230653903817,
+      "threshold_at_80_precision": 0.8142173358085973,
+      "recall_at_90_precision": 0.04529852550157119,
+      "precision_at_90_precision": 0.9009615384615385,
+      "threshold_at_90_precision": 0.9473222507495356
+    },
+    "test_metrics": {
+      "roc_auc": 0.8690818351351208,
+      "pr_auc": 0.9652932453682653,
+      "brier": 0.13798983434488196,
+      "f1": 0.9246093208920454,
+      "precision": 0.9227617754989192,
+      "recall": 0.9264642794054558,
+      "recall_at_80_precision": 1.0,
+      "precision_at_80_precision": 0.8303891368579871,
+      "threshold_at_80_precision": 4.709211853844748e-22,
+      "recall_at_90_precision": 0.9824866883690413,
+      "precision_at_90_precision": 0.9000184936890286,
+      "threshold_at_90_precision": 0.10575557792848528
+    }
   }
 }

@@ -1,0 +1,33 @@
+{
+  "model_name": "logistic_regression",
+  "threshold": 0.285,
+  "val_metrics": {
+    "roc_auc": 0.8014699823088084,
+    "pr_auc": 0.7349255071425739,
+    "brier": 0.18803236579798857,
+    "f1": 0.7174211248285323,
+    "precision": 0.5920196207904914,
+    "recall": 0.9102248005801306,
+    "recall_at_80_precision": 0.3353637901861252,
+    "precision_at_80_precision": 0.8000230653903817,
+    "threshold_at_80_precision": 0.8142173358085973,
+    "recall_at_90_precision": 0.04529852550157119,
+    "precision_at_90_precision": 0.9009615384615385,
+    "threshold_at_90_precision": 0.9473222507495356
+  },
+  "test_metrics": {
+    "roc_auc": 0.8690818351351208,
+    "pr_auc": 0.9652932453682653,
+    "brier": 0.13798983434488196,
+    "f1": 0.9246093208920454,
+    "precision": 0.9227617754989192,
+    "recall": 0.9264642794054558,
+    "recall_at_80_precision": 1.0,
+    "precision_at_80_precision": 0.8303891368579871,
+    "threshold_at_80_precision": 4.709211853844748e-22,
+    "recall_at_90_precision": 0.9824866883690413,
+    "precision_at_90_precision": 0.9000184936890286,
+    "threshold_at_90_precision": 0.10575557792848528
+  },
+  "note": "Packaged Logistic Regression baseline trained offline on the same temporal split and feature set as production. Numeric features are standardized before fitting."
+}

@@ -96,7 +96,9 @@ DataOps stops there. It does not retrain or promote a model.
 ```text
 select dataset version
     ↓
-train LightGBM candidate
+train Logistic Regression baseline
+    ↓
+train LightGBM candidate on the same temporal split
     ↓
 validation threshold selection
     ↓
@@ -109,7 +111,17 @@ explicit Promote Candidate action
 replace packaged/runtime production artifact
 ```
 
-Training a candidate never changes production automatically.
+Training a candidate never changes production automatically. Evaluation includes ROC-AUC, PR-AUC, Brier score, precision, recall, F1, and recall at fixed precision.
+
+## Monitoring and business evaluation
+
+The developer monitoring page now measures runtime model latency, intervention/high-risk rates, pipeline success, prediction drift, input-feature drift, and labeled holdout business impact. A packaged holdout probability file supports aggregate estimated savings and sensitivity analysis across fulfillment-cost, intervention-effectiveness, and intervention-cost assumptions without retraining the model.
+
+## DevOps automation
+
+- `.github/workflows/ci.yml` runs the full test suite, smoke-tests the packaged production model, and builds the Docker image after tests pass.
+- `Dockerfile` provides a reproducible Python 3.12 container with a Streamlit health check.
+- Streamlit Community Cloud can continue to deploy from the GitHub `main` branch, while CI validates each push first.
 
 ## Profit-aware decision rule
 

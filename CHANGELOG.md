@@ -36,3 +36,14 @@
 - Added temporal cancellation-prevalence context to highlight dataset shift.
 - Added one-time baseline rebuild script.
 - Added tests confirming packaged inference works without retraining and customer history spans batches.
+
+## Computational completeness update
+- Added Logistic Regression as a tracked baseline using the same temporal split and features as LightGBM.
+- Added recall at 80% and 90% fixed precision to evaluation metrics.
+- Added packaged holdout probabilities for business and drift analysis.
+- Added aggregate estimated net savings, avoided cost per 1,000 orders, false-intervention cost, capture rate, and sensitivity analysis.
+- Added core model inference latency logging and P95/maximum runtime monitoring.
+- Added prediction PSI plus numeric/categorical input drift monitoring.
+- Added DataOps, ModelOps, promotion, and batch-inference reliability summaries.
+- Added GitHub Actions CI, packaged-model smoke testing, and Docker image builds.
+- Expanded automated tests from 6 to 13.

@@ -24,13 +24,14 @@ DataOps never trains or promotes a model.
 ### ModelOps
 
 1. Developer selects a versioned dataset.
-2. A LightGBM candidate is trained with a temporal 70/15/15 split.
-3. The validation period selects the F1 threshold.
-4. Test metrics and evaluation artifacts are generated.
-5. The run is logged to MLflow.
-6. The candidate is persisted separately from production.
-7. Developer compares candidate metrics with the active production model.
-8. An explicit promotion action replaces the production model artifact and metadata.
+2. Logistic Regression is trained as a baseline on a temporal 70/15/15 split.
+3. A LightGBM candidate is trained on the exact same split and feature set.
+4. The validation period selects the F1 threshold for each model.
+5. Test metrics include ROC-AUC, PR-AUC, Brier score, F1, precision, recall, and recall at fixed precision.
+6. Evaluation artifacts and both experiment runs are logged to MLflow.
+7. The candidate is persisted separately from production.
+8. Developer compares the baseline, candidate, and active production metrics.
+9. An explicit promotion action replaces the production model artifact and metadata.
 
 A failed or poor candidate does not affect operations scoring.
 
@@ -63,3 +64,13 @@ A fresh DuckDB runtime registers the packaged dataset metadata on first use. Thi
 ## Runtime persistence
 
 Streamlit Community Cloud does not guarantee persistence for files created after deployment. The packaged baseline remains available after reboot because it is part of the repository. Runtime DuckDB history, uploaded batches, candidate artifacts, and local MLflow state may reset unless external persistent storage is configured.
+
+## Production monitoring
+
+Single-order inference records core model latency, probability, recommendation, policy inputs, and the model feature vector used for scoring. Monitoring computes runtime latency summaries, pipeline success rates, prediction PSI, numeric-feature PSI, categorical total-variation drift, and aggregate expected intervention activity. At least 20 runtime observations are required before drift estimates are displayed.
+
+The packaged temporal holdout includes production probabilities and labels. This supports historical business-policy evaluation and sensitivity analysis without retraining. These savings are counterfactual estimates because the source dataset does not contain warehouse labor or intervention-effectiveness measurements.
+
+## DevOps
+
+GitHub Actions runs tests and a packaged-inference smoke test on each push/pull request, then performs a Docker build. The Docker image uses Python 3.12, exposes Streamlit on port 8501, and includes a health check. Streamlit Community Cloud remains the classroom deployment target.

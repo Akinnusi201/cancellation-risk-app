@@ -12,8 +12,9 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -38,6 +39,20 @@ def temporal_split(df, train_frac=.70, val_frac=.15):
 def preprocessor():
     return ColumnTransformer([
         ("num", Pipeline([("impute", SimpleImputer(strategy="median"))]), NUMERIC_FEATURES),
+        ("cat", Pipeline([
+            ("impute", SimpleImputer(strategy="most_frequent")),
+            ("ohe", OneHotEncoder(handle_unknown="ignore")),
+        ]), CATEGORICAL_FEATURES),
+    ])
+
+
+
+def logistic_preprocessor():
+    return ColumnTransformer([
+        ("num", Pipeline([
+            ("impute", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+        ]), NUMERIC_FEATURES),
         ("cat", Pipeline([
             ("impute", SimpleImputer(strategy="most_frequent")),
             ("ohe", OneHotEncoder(handle_unknown="ignore")),
@@ -113,6 +128,20 @@ def main(raw_csv):
     print("Test", tm, flush=True)
     print("Threshold", threshold, flush=True)
 
+    print("Training Logistic Regression baseline ...", flush=True)
+    baseline = Pipeline([
+        ("prep", logistic_preprocessor()),
+        ("model", LogisticRegression(max_iter=600, solver="lbfgs", random_state=RANDOM_STATE)),
+    ])
+    baseline.fit(Xtr, ytr)
+    bpv = baseline.predict_proba(Xv)[:, 1]
+    baseline_threshold, _ = best_f1_threshold(yv, bpv)
+    baseline_vm = metrics(yv, bpv, baseline_threshold)
+    bpt = baseline.predict_proba(Xt)[:, 1]
+    baseline_tm = metrics(yt, bpt, baseline_threshold)
+    print("Logistic baseline validation", baseline_vm, flush=True)
+    print("Logistic baseline test", baseline_tm, flush=True)
+
     artifacts = ROOT / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     with open(artifacts / "production_model.pkl", "wb") as f:
@@ -124,6 +153,38 @@ def main(raw_csv):
     names = model.named_steps["prep"].get_feature_names_out()
     imp = model.named_steps["model"].feature_importances_
     pd.DataFrame({"feature": names, "importance": imp}).sort_values("importance", ascending=False).to_csv(eval_dir / "feature_importance.csv", index=False)
+    pd.DataFrame({
+        "order_id": test_df["order_id"].astype(str).to_numpy(),
+        "is_canceled": yt.astype(int).to_numpy(),
+        "probability": pt,
+    }).to_csv(eval_dir / "test_predictions.csv.gz", index=False, compression="gzip")
+    pd.DataFrame([
+        {
+            "Model": "Logistic Regression", "Threshold": baseline_threshold,
+            "Validation ROC-AUC": baseline_vm["roc_auc"], "Validation PR-AUC": baseline_vm["pr_auc"],
+            "Validation Brier": baseline_vm["brier"], "Test ROC-AUC": baseline_tm["roc_auc"],
+            "Test PR-AUC": baseline_tm["pr_auc"], "Test Brier": baseline_tm["brier"],
+            "Test F1": baseline_tm["f1"], "Test Precision": baseline_tm["precision"],
+            "Test Recall": baseline_tm["recall"],
+            "Recall at 80% Precision": baseline_tm["recall_at_80_precision"],
+            "Recall at 90% Precision": baseline_tm["recall_at_90_precision"],
+        },
+        {
+            "Model": "LightGBM Production", "Threshold": threshold,
+            "Validation ROC-AUC": vm["roc_auc"], "Validation PR-AUC": vm["pr_auc"],
+            "Validation Brier": vm["brier"], "Test ROC-AUC": tm["roc_auc"],
+            "Test PR-AUC": tm["pr_auc"], "Test Brier": tm["brier"],
+            "Test F1": tm["f1"], "Test Precision": tm["precision"],
+            "Test Recall": tm["recall"],
+            "Recall at 80% Precision": tm["recall_at_80_precision"],
+            "Recall at 90% Precision": tm["recall_at_90_precision"],
+        },
+    ]).to_csv(eval_dir / "baseline_comparison.csv", index=False)
+    (eval_dir / "baseline_metrics.json").write_text(json.dumps({
+        "model_name": "logistic_regression", "threshold": baseline_threshold,
+        "val_metrics": baseline_vm, "test_metrics": baseline_tm,
+        "note": "Logistic Regression baseline uses the same temporal split and features; numeric inputs are standardized."
+    }, indent=2))
 
     # Reference sample is drawn from training history; demo queue comes from the final holdout.
     reference = train_df.sample(n=min(20000, len(train_df)), random_state=RANDOM_STATE)
@@ -147,6 +208,18 @@ def main(raw_csv):
         "test_metrics": tm,
         "split_cancellation_prevalence": {
             "train": float(ytr.mean()), "validation": float(yv.mean()), "test": float(yt.mean())
+        },
+        "reference_prediction_summary": {
+            "holdout_rows": int(len(test_df)),
+            "mean_probability": float(np.mean(pt)),
+            "median_probability": float(np.median(pt)),
+            "p95_probability": float(np.quantile(pt, 0.95)),
+        },
+        "baseline": {
+            "model_name": "logistic_regression",
+            "threshold": baseline_threshold,
+            "val_metrics": baseline_vm,
+            "test_metrics": baseline_tm,
         },
         "model_artifact": "artifacts/production_model.pkl",
         "evaluation_dir": "artifacts/production_evaluation",
