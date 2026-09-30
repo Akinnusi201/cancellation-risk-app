@@ -1,0 +1,31 @@
+{
+  "model_name": "lightgbm",
+  "model_version": "seed-1",
+  "dataset_version": "pakistan_seed_v1",
+  "threshold": 0.4099999999999999,
+  "val_metrics": {
+    "roc_auc": 0.8307735543129594,
+    "pr_auc": 0.7816064284173505,
+    "brier": 0.17594895635102903,
+    "f1": 0.7243321469081238,
+    "precision": 0.6081973135406745,
+    "recall": 0.895286439448876
+  },
+  "test_metrics": {
+    "roc_auc": 0.9110529367473508,
+    "pr_auc": 0.9763853762001931,
+    "brier": 0.09227790783332714,
+    "f1": 0.9404569925819336,
+    "precision": 0.9248542220704126,
+    "recall": 0.9565952507128977
+  },
+  "model_artifact": "artifacts/production_model.pkl",
+  "evaluation_dir": "artifacts/production_evaluation",
+  "source": "packaged_seed",
+  "training_note": "Trained once offline from the packaged Pakistan order-level baseline. Streamlit startup does not retrain.",
+  "split_cancellation_prevalence": {
+    "train": 0.3966429270658392,
+    "validation": 0.43346605196982396,
+    "test": 0.8303891368579871
+  }
+}

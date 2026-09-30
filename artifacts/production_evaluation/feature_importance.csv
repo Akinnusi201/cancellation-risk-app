@@ -1,0 +1,44 @@
+feature,importance
+num__grand_total,770
+num__price,669
+num__customer_cancel_rate,643
+num__discount_ratio,491
+num__day_of_week,226
+num__discount_amount,216
+num__qty_ordered,139
+num__is_cod,122
+cat__category_name_1_\N,106
+cat__payment_method_Payaxis,101
+cat__payment_method_easypay_voucher,97
+cat__payment_method_Easypay,76
+cat__payment_method_cashatdoorstep,72
+cat__payment_method_jazzwallet,70
+cat__category_name_1_Others,67
+cat__category_name_1_Men's Fashion,58
+cat__category_name_1_Appliances,54
+cat__payment_method_mygateway,51
+cat__category_name_1_Superstore,50
+cat__payment_method_customercredit,50
+cat__category_name_1_Mobiles & Tablets,43
+cat__category_name_1_Books,41
+cat__payment_method_mcblite,38
+cat__payment_method_marketingexpense,35
+cat__category_name_1_Entertainment,32
+cat__category_name_1_Computing,31
+cat__payment_method_Easypay_MA,24
+cat__category_name_1_Soghaat,24
+cat__payment_method_jazzvoucher,20
+cat__category_name_1_Women's Fashion,14
+cat__category_name_1_School & Education,11
+cat__category_name_1_Kids & Baby,10
+cat__payment_method_internetbanking,9
+cat__payment_method_ublcreditcard,8
+cat__payment_method_cod,8
+cat__category_name_1_Health & Sports,8
+cat__category_name_1_Home & Living,6
+cat__category_name_1_Beauty & Grooming,5
+num__has_discount,5
+num__hour,0
+cat__payment_method_bankalfalah,0
+cat__payment_method_financesettlement,0
+cat__payment_method_productcredit,0

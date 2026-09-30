@@ -1,8 +1,8 @@
 streamlit>=1.39
 pandas>=2.1
 numpy>=1.26
-scikit-learn>=1.5.2,<1.9
-lightgbm>=4.3
+scikit-learn==1.8.0
+lightgbm==4.6.0
 mlflow>=3.5,<4
 duckdb>=1.1
 pyarrow>=15

@@ -5,6 +5,7 @@ from src.config import ORDER_ID_CANDIDATES
 from src.data.validation import validate_raw
 from src.data.aggregation import aggregate_to_orders, first_existing
 from src.data.versioning import sha256_bytes, save_raw, next_version, build_cumulative_snapshot, persist_version
+from src.data.io import read_snapshot
 from src.database.duckdb_manager import connect, now, log_event
 
 
@@ -81,6 +82,8 @@ def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_m
     progress(12, "Saving raw batch")
     try:
         df = pd.read_csv(io.BytesIO(file_bytes), low_memory=False)
+        # The source Kaggle CSV contains a long fully blank tail; blank physical rows are not business records.
+        df = df.dropna(how="all").reset_index(drop=True)
         progress(15, "Reading CSV")
 
         # Demo mode samples COMPLETE ORDERS, not arbitrary rows, so item-level
@@ -136,7 +139,7 @@ def ingest_batch(file_bytes: bytes, filename: str, progress_callback=None, run_m
             progress(40, "Checking for previously ingested orders")
             existing_ids = set()
             if prev and Path(prev[0]).exists():
-                existing_ids = set(pd.read_parquet(prev[0], columns=["order_id"])["order_id"].astype("string").dropna())
+                existing_ids = set(read_snapshot(prev[0], columns=["order_id"])["order_id"].astype("string").dropna())
             overlap = set(valid[order_col].astype("string").dropna()) & existing_ids
             if overlap:
                 mask = valid[order_col].astype("string").isin(overlap)

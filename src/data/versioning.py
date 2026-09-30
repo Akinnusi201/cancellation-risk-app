@@ -5,6 +5,8 @@ import pandas as pd
 from src.config import RAW_DIR, PROCESSED_DIR, QUARANTINE_DIR, REPORTS_DIR
 from src.database.duckdb_manager import connect, now
 from src.data.schema import normalize_snapshot_schema
+from src.data.aggregation import recompute_customer_history
+from src.data.io import read_snapshot
 
 
 def sha256_bytes(data: bytes):
@@ -36,12 +38,13 @@ def build_cumulative_snapshot(new_orders, version, cumulative=True):
     with connect() as con:
         prev = con.execute("SELECT processed_path FROM dataset_versions WHERE active = TRUE ORDER BY created_at DESC LIMIT 1").fetchone()
     if prev and Path(prev[0]).exists():
-        old = normalize_snapshot_schema(pd.read_parquet(prev[0]))
+        old = normalize_snapshot_schema(read_snapshot(prev[0]))
         combined = pd.concat([old, new_orders], ignore_index=True)
         combined = normalize_snapshot_schema(combined)
         combined = combined.sort_values(["created_at", "order_id"]).drop_duplicates(subset=["order_id"], keep="last")
     else:
         combined = new_orders.copy()
+    combined = recompute_customer_history(combined)
     return normalize_snapshot_schema(combined.reset_index(drop=True))
 
 

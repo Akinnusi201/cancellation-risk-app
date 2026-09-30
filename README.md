@@ -1,89 +1,183 @@
 # Profit-Aware E-Commerce Order Cancellation Risk
 
-Group 10 web prototype: automated batch DataOps, one fast LightGBM training pipeline, MLflow experiment/model versioning, and a manager-facing Streamlit cancellation-risk queue.
+Group 10 Streamlit prototype for **DataOps + ModelOps + DevOps** around cancellation-risk scoring.
 
-## Current prototype scope
+## What changed in this version
 
-- **One production model only: LightGBM.** This keeps automatic retraining practical for the demo.
-- Batch CSV ingestion with atomic SHA-256 duplicate protection.
-- Re-uploading the same file is a safe no-op. It does not throw a DuckDB unique-constraint error and does not retrain.
-- Automated schema/range/date/target/duplicate validation.
-- Safe cleaning and quarantine of records that should not be guessed/fixed.
-- Deterministic item-to-order aggregation and leakage-safe prior customer cancellation history.
-- Cumulative timestamped Parquet dataset versions plus downloadable validation/quarantine artifacts.
-- Temporal 70/15/15 train/validation/test split.
-- Validation-set F1 threshold optimization.
-- MLflow run tracking, artifacts, model registry, and model versions.
-- Manual **LightGBM** experiments with adjustable trees, learning rate, and leaves. Manual experiments never auto-promote.
-- Held-out test orders simulated as incoming manager orders.
-- Approve/Hold decisions, actual historical outcome reveal, and audit history.
+The deployed app is now prediction-ready at startup. Operations users no longer upload the Pakistan dataset or retrain a model before scoring orders.
 
-## Deploy as an internet web app
+The repository ships these baseline artifacts:
 
-The project is prepared for **Streamlit Community Cloud**. Community Cloud deploys directly from a GitHub repository and gives the app a public `streamlit.app` URL.
+- `data/seed/pakistan_orders_v1.csv.gz` — cleaned, order-level Pakistan baseline used for reproducible developer retraining.
+- `artifacts/production_model.pkl` — pretrained LightGBM production pipeline.
+- `artifacts/active_model.json` — production model version, dataset lineage, threshold, and metrics.
+- `artifacts/reference_orders.csv.gz` — reference sample used for lightweight prediction explanations.
+- `artifacts/demo_orders.csv.gz` — held-out historical orders used for the operations simulation.
+- `artifacts/production_evaluation/` — ROC, PR, calibration, and feature-importance artifacts.
 
-### 1. Put this folder in a GitHub repository
+The original 100+ MB raw CSV is intentionally **not** committed. GitHub's normal single-file limit makes the raw source a poor deployment artifact, and production inference does not need it.
 
-The repository root should contain:
+## Role-based application
 
-```text
-app.py
-pages/
-src/
-requirements.txt
-packages.txt
-.streamlit/config.toml
+Navigation is built with `st.navigation` and only exposes pages permitted for the signed-in role.
+
+### Operations Manager
+
+- Operations Dashboard
+- Score Order
+  - incoming-order simulation
+  - manual order scoring
+  - batch CSV scoring
+- Decision History
+
+Operations users can change economic assumptions for a scoring session, but they cannot ingest datasets, train models, or promote candidates.
+
+### Developer
+
+- Developer Dashboard
+- DataOps
+- ModelOps
+- Model Monitoring
+- MLflow Experiments
+- System Status
+
+## Authentication
+
+Credentials are read from Streamlit secrets or equivalent environment variables. **Do not commit real passwords.**
+
+Copy `.streamlit/secrets.example.toml` to `.streamlit/secrets.toml` for local development, or add the same TOML in Streamlit Community Cloud → App settings → Secrets:
+
+```toml
+[auth.manager]
+username = "operations"
+password = "<manager-password>"
+
+[auth.developer]
+username = "developer"
+password = "<developer-password>"
 ```
 
-Do **not** commit the large Pakistan CSV to GitHub. Upload it through the Data Pipeline page after the app is deployed.
-
-### 2. Deploy on Streamlit Community Cloud
-
-1. Sign in at `share.streamlit.io` with GitHub.
-2. Choose **Create app**.
-3. Select the repository and branch.
-4. Set the entrypoint to `app.py`.
-5. Choose Python **3.12** in Advanced settings.
-6. Deploy.
-
-Community Cloud reads `requirements.txt`, `packages.txt`, and `.streamlit/config.toml` automatically.
-
-### 3. Use the hosted app
-
-Open the generated `https://<your-app>.streamlit.app` address, go to **Data Pipeline**, and upload the Pakistan e-commerce CSV. A successful new batch automatically:
+Equivalent environment variables are:
 
 ```text
-validates → cleans → quarantines → versions → trains LightGBM → logs MLflow → registers/promotes model
+AUTH_MANAGER_USERNAME
+AUTH_MANAGER_PASSWORD
+AUTH_DEVELOPER_USERNAME
+AUTH_DEVELOPER_PASSWORD
 ```
+
+## Production startup path
+
+```text
+Streamlit starts
+    ↓
+register packaged seed dataset metadata (fresh runtime only)
+    ↓
+load artifacts/production_model.pkl
+    ↓
+operations scoring is ready
+```
+
+**No model training occurs at startup.**
+
+## DataOps path
+
+The packaged Pakistan dataset is the baseline dataset version. Developers upload only new item-level batches.
+
+```text
+new CSV batch
+    ↓
+SHA-256 duplicate protection
+    ↓
+schema / date / range / target validation
+    ↓
+quarantine invalid records
+    ↓
+order-status and existing-order checks
+    ↓
+item → order aggregation
+    ↓
+recompute leakage-safe prior customer history across the cumulative timeline
+    ↓
+new immutable dataset version
+```
+
+DataOps stops there. It does not retrain or promote a model.
+
+`demo_batch.csv` is packaged as a safe new batch with non-overlapping order IDs so the DataOps workflow can be demonstrated without replacing the baseline.
+
+## ModelOps path
+
+```text
+select dataset version
+    ↓
+train LightGBM candidate
+    ↓
+validation threshold selection
+    ↓
+held-out evaluation + MLflow logging
+    ↓
+review candidate vs production
+    ↓
+explicit Promote Candidate action
+    ↓
+replace packaged/runtime production artifact
+```
+
+Training a candidate never changes production automatically.
+
+## Profit-aware decision rule
+
+The model estimates cancellation probability. The decision layer then applies configurable business assumptions:
+
+```text
+Expected Avoidable Cost
+    = P(Cancellation) × Avoidable Fulfillment Cost × Intervention Effectiveness
+
+Net Expected Savings
+    = Expected Avoidable Cost
+      - Intervention Cost
+      - Expected False-Intervention Friction
+```
+
+The app recommends **Hold for Verification** when net expected savings are positive. This keeps the probability model separate from business policy.
+
+## Dataset notes
+
+The Kaggle CSV physically contains 1,048,575 lines when read as rows, but only **584,524 nonblank transaction rows**. The long blank tail is dropped before validation because blank physical rows are not business records.
+
+Among the nonblank source rows, the documented complete/canceled target contains 318,158 unique orders. The packaged model-ready baseline contains **318,135 orders** after the project's validation rules quarantine a small number of invalid item records instead of silently fixing them. The exact counts and checks are saved in `data/seed/pakistan_seed_validation.json`.
+
+The final temporal holdout has a much higher cancellation prevalence than earlier periods, so the monitoring page should be used to discuss temporal drift and why calibration/business metrics matter in addition to ROC-AUC.
 
 ## MLflow
 
-You do not need to run a second MLflow web server for this version. The Streamlit pages read MLflow runs directly and display the metrics, experiment history, model versions, ROC curve, PR curve, calibration plot, and feature importance.
+Runtime candidate and manual experiment training is logged to MLflow. The packaged seed production model is deliberately independent of runtime MLflow state so a fresh Streamlit deployment does not need an MLflow database to perform inference.
 
-By default, MLflow uses a SQLite backend inside the hosted app. `MLFLOW_TRACKING_URI` can later be supplied as an environment variable/secret to point the exact same code at a persistent remote MLflow server.
+By default:
 
-## Important cloud-storage note
+- MLflow backend: local SQLite
+- MLflow artifacts: `artifacts/mlflow/`
+- DuckDB metadata/audit store: `cancellation.duckdb`
 
-Streamlit Community Cloud does not guarantee persistence of files created at runtime. This is acceptable for a classroom demonstration, but a reboot may clear uploaded datasets, DuckDB history, and local MLflow files. For a longer-lived production version, move the database/artifact store to persistent cloud services.
+These runtime stores are fine for a classroom prototype. For a persistent production deployment, move them to persistent external services.
 
-## Modeling safeguards
+## Streamlit Community Cloud deployment
 
-- Threshold selection happens on validation data, never the test set.
-- The newest temporal holdout is reserved for final metrics and the incoming-order simulation.
-- Outcome-derived columns such as `status`, `BI Status`, and `is_canceled` are blocked from model features.
-- Customer cancellation history only uses prior orders.
-- Identifier columns are normalized as strings before aggregation and Parquet persistence.
+1. Push the project to GitHub.
+2. Create a Streamlit Community Cloud app pointing to `app.py`.
+3. Use Python 3.12.
+4. Add the authentication secrets shown above.
+5. Deploy.
 
+The app should open to the login page and be prediction-ready immediately after authentication.
 
-## Fast demo vs full-data mode
+## Rebuilding the packaged baseline
 
-The Data Pipeline page now has two execution modes:
+The one-time maintainer script is included for reproducibility:
 
-- **Demo Sample** samples complete orders with a fixed random seed and trains an isolated LightGBM model with fewer trees. This is intended for a fast classroom demo.
-- **Full Dataset** uses the cumulative versioned dataset and performs the full retraining workflow.
+```bash
+python scripts/build_seed_artifacts.py "/path/to/Pakistan Largest Ecommerce Dataset.csv"
+```
 
-The pipeline displays **Step X of 14**, the operation currently running, a progress bar, and short explanations based on the original notebook (temporal splitting, customer cancellation history, LightGBM, F1 thresholding, ROC-AUC, PR-AUC, calibration, and feature importance).
-
-### MLflow serialization on Streamlit Cloud
-
-The LightGBM sklearn pipeline is logged with MLflow using explicit `cloudpickle` serialization. This avoids `skops` trust errors for third-party LightGBM estimator types on newer MLflow releases.
+This script is not called by Streamlit startup.

@@ -46,7 +46,14 @@ CREATE TABLE IF NOT EXISTS predictions (
     probability DOUBLE,
     threshold DOUBLE,
     recommendation VARCHAR,
-    actual_outcome VARCHAR
+    actual_outcome VARCHAR,
+    expected_avoidable_cost DOUBLE,
+    expected_false_positive_cost DOUBLE,
+    net_expected_savings DOUBLE,
+    avoidable_fulfillment_cost DOUBLE,
+    intervention_effectiveness DOUBLE,
+    intervention_cost DOUBLE,
+    false_positive_friction_cost DOUBLE
 );
 CREATE TABLE IF NOT EXISTS manager_decisions (
     decision_id VARCHAR PRIMARY KEY,
@@ -59,7 +66,12 @@ CREATE TABLE IF NOT EXISTS manager_decisions (
     threshold DOUBLE,
     actual_outcome VARCHAR,
     model_name VARCHAR,
-    model_version VARCHAR
+    model_version VARCHAR,
+    net_expected_savings DOUBLE,
+    avoidable_fulfillment_cost DOUBLE,
+    intervention_effectiveness DOUBLE,
+    intervention_cost DOUBLE,
+    false_positive_friction_cost DOUBLE
 );
 CREATE TABLE IF NOT EXISTS system_events (
     event_id VARCHAR PRIMARY KEY,
@@ -74,6 +86,23 @@ CREATE TABLE IF NOT EXISTS system_events (
 def connect():
     con = duckdb.connect(str(DB_PATH))
     con.execute(SCHEMA_SQL)
+    # Lightweight forward migrations for databases created by earlier prototype versions.
+    migrations = [
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS expected_avoidable_cost DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS expected_false_positive_cost DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS net_expected_savings DOUBLE",
+        "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS net_expected_savings DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS avoidable_fulfillment_cost DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS intervention_effectiveness DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS intervention_cost DOUBLE",
+        "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS false_positive_friction_cost DOUBLE",
+        "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS avoidable_fulfillment_cost DOUBLE",
+        "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS intervention_effectiveness DOUBLE",
+        "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS intervention_cost DOUBLE",
+        "ALTER TABLE manager_decisions ADD COLUMN IF NOT EXISTS false_positive_friction_cost DOUBLE",
+    ]
+    for sql in migrations:
+        con.execute(sql)
     return con
 
 def now():

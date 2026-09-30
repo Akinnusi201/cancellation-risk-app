@@ -1,0 +1,80 @@
+{
+  "version": "pakistan_seed_v1",
+  "raw_rows": 584524,
+  "valid_item_rows": 434887,
+  "quarantined_item_rows": 149637,
+  "order_rows": 318135,
+  "complete_orders": 169493,
+  "canceled_orders": 148642,
+  "checks": [
+    {
+      "check_name": "required_columns",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "All required columns present"
+    },
+    {
+      "check_name": "order_identifier",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "Using increment_id; missing IDs quarantined"
+    },
+    {
+      "check_name": "date_parsing",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "Unparseable created_at"
+    },
+    {
+      "check_name": "range_price",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "Invalid price values"
+    },
+    {
+      "check_name": "range_qty_ordered",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "Invalid qty_ordered values"
+    },
+    {
+      "check_name": "range_grand_total",
+      "status": "WARN",
+      "affected_rows": 76,
+      "details": "Invalid grand_total values"
+    },
+    {
+      "check_name": "range_discount_amount",
+      "status": "WARN",
+      "affected_rows": 3,
+      "details": "Invalid discount_amount values"
+    },
+    {
+      "check_name": "target_status",
+      "status": "WARN",
+      "affected_rows": 149590,
+      "details": "Rows outside complete/canceled"
+    },
+    {
+      "check_name": "duplicate_rows",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "Exact duplicate rows"
+    },
+    {
+      "check_name": "leakage_guard",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "Outcome columns are blocked from model features: ['BI Status', 'bi_status', 'canceled_at', 'cancelled_at', 'completed_at', 'final_status', 'is_canceled', 'refund', 'refund_status', 'status']"
+    },
+    {
+      "check_name": "order_status_consistency",
+      "status": "PASS",
+      "affected_rows": 0,
+      "details": "Orders with multiple final statuses quarantined"
+    }
+  ],
+  "eligible_complete_canceled_orders_before_quality_quarantine": 318158,
+  "eligible_complete_orders_before_quality_quarantine": 169502,
+  "eligible_canceled_orders_before_quality_quarantine": 148656
+}

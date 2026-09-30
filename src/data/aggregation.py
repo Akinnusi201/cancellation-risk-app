@@ -22,6 +22,33 @@ def add_row_features(df):
     return out
 
 
+
+def recompute_customer_history(orders: pd.DataFrame) -> pd.DataFrame:
+    """Recompute leakage-safe prior cancellation history after datasets are combined."""
+    out = orders.sort_values(["created_at", "order_id"]).reset_index(drop=True).copy()
+    grp = out.groupby("customer_id", dropna=False)
+    out["prev_orders"] = grp.cumcount()
+    out["prev_cancellations"] = grp["is_canceled"].cumsum() - out["is_canceled"]
+    out["customer_cancel_rate"] = np.where(
+        out["prev_orders"] > 0, out["prev_cancellations"] / out["prev_orders"], 0.0
+    )
+    return out
+
+def _group_mode(df: pd.DataFrame, group_col: str, value_col: str) -> pd.DataFrame:
+    """Deterministic group mode without slow Python lambdas per order."""
+    counts = (
+        df[[group_col, value_col]]
+        .assign(**{value_col: df[value_col].fillna("unknown").astype(str)})
+        .groupby([group_col, value_col], dropna=False, sort=False)
+        .size()
+        .rename("_n")
+        .reset_index()
+    )
+    # Highest frequency wins. Lexicographic value breaks ties deterministically.
+    counts = counts.sort_values([group_col, "_n", value_col], ascending=[True, False, True])
+    return counts.drop_duplicates(group_col)[[group_col, value_col]]
+
+
 def aggregate_to_orders(df):
     # IDs must have one stable type before pandas sort/groupby.
     df = normalize_identifier_columns(df)
@@ -37,22 +64,23 @@ def aggregate_to_orders(df):
 
     df = df.sort_values(["created_at", order_col]).copy()
 
-    # Status consistency: if an order has multiple statuses, quarantine at a higher layer later if desired.
-    agg = df.groupby(order_col, dropna=False).agg(
+    # Native groupby aggregations keep large batches fast.
+    agg = df.groupby(order_col, dropna=False, sort=False).agg(
         created_at=("created_at", "min"),
         customer_id=(cust_col, "first"),
         price=("price", "mean"),
         qty_ordered=("qty_ordered", "sum"),
         grand_total=("grand_total", "max"),
         discount_amount=("discount_amount", "sum"),
-        category_name_1=("category_name_1", lambda s: s.mode().iat[0] if not s.mode().empty else "unknown"),
-        payment_method=("payment_method", lambda s: s.mode().iat[0] if not s.mode().empty else "unknown"),
         is_canceled=("is_canceled", "max"),
-        status=("status", lambda s: "canceled" if (s == "canceled").any() else ("complete" if (s == "complete").any() else "received")),
     ).reset_index().rename(columns={order_col: "order_id"})
 
-    # Stable identifier types are critical for cumulative Parquet snapshots.
-    # IDs are identifiers, not quantities, so always store them as strings.
+    category_mode = _group_mode(df, order_col, "category_name_1").rename(columns={order_col: "order_id"})
+    payment_mode = _group_mode(df, order_col, "payment_method").rename(columns={order_col: "order_id"})
+    agg = agg.merge(category_mode, on="order_id", how="left").merge(payment_mode, on="order_id", how="left")
+    agg["status"] = agg["is_canceled"].map({1: "canceled", 0: "complete"})
+
+    # Stable identifier types are critical for cumulative snapshots.
     agg["order_id"] = agg["order_id"].astype("string")
     agg["customer_id"] = agg["customer_id"].astype("string")
 
@@ -62,10 +90,5 @@ def aggregate_to_orders(df):
     agg["day_of_week"] = agg["created_at"].dt.dayofweek
     agg["hour"] = agg["created_at"].dt.hour.fillna(0).astype(int)
 
-    # Leakage-safe historical customer cancellation rate: only prior orders contribute.
-    agg = agg.sort_values(["created_at", "order_id"]).reset_index(drop=True)
-    grp = agg.groupby("customer_id", dropna=False)
-    agg["prev_orders"] = grp.cumcount()
-    agg["prev_cancellations"] = grp["is_canceled"].cumsum() - agg["is_canceled"]
-    agg["customer_cancel_rate"] = np.where(agg["prev_orders"] > 0, agg["prev_cancellations"] / agg["prev_orders"], 0.0)
-    return agg
+    # Leakage-safe history is calculated on the ordered batch, then recalculated again after cumulative merges.
+    return recompute_customer_history(agg)
