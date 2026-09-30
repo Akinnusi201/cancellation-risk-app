@@ -49,6 +49,8 @@ def _empty_business_summary():
     return {
         "scoring_records": 0,
         "orders_scored": 0,
+        "orders_pending_review": 0,
+        "orders_released": 0,
         "orders_verified": 0,
         "verification_rate": 0.0,
         "expected_cancellations_reached": 0.0,
@@ -81,17 +83,26 @@ def _fallback_operations_business_summary(model_version=None):
             """,
             params,
         )
+        decisions = dataframe(
+            "SELECT prediction_id, manager_decision, decided_at FROM manager_decisions ORDER BY decided_at"
+        )
+        if not decisions.empty:
+            decisions["decided_at"] = pd.to_datetime(decisions["decided_at"], errors="coerce")
+            decisions = decisions.sort_values("decided_at").drop_duplicates("prediction_id", keep="last")
+            predictions = predictions.merge(
+                decisions[["prediction_id", "manager_decision"]], on="prediction_id", how="left"
+            )
+        else:
+            predictions["manager_decision"] = None
     except Exception:
         return pd.DataFrame(), _empty_business_summary()
 
     if predictions.empty or "scoring_mode" not in predictions.columns:
         return pd.DataFrame(), _empty_business_summary()
 
-    allowed = {"manual", "batch", "production_manual", "production_batch"}
+    allowed = {"manual", "batch", "production_manual", "production_batch", "simulation_live"}
     df = predictions.copy()
-    df["monitoring_mode"] = (
-        df["scoring_mode"].fillna("").astype(str).str.strip().str.lower()
-    )
+    df["monitoring_mode"] = df["scoring_mode"].fillna("").astype(str).str.strip().str.lower()
     df = df[df["monitoring_mode"].isin(allowed)].copy()
     if df.empty:
         return df, _empty_business_summary()
@@ -105,7 +116,18 @@ def _fallback_operations_business_summary(model_version=None):
             order_key = order_key.fillna(df["prediction_id"].astype("string"))
         df = df.assign(_order_key=order_key).drop_duplicates("_order_key", keep="last")
 
-    verified = df["recommendation"].eq("Hold for Verification")
+    manager = df.get("manager_decision", pd.Series(index=df.index, dtype="object")).astype("string")
+    action = manager.copy()
+    missing = action.isna() | action.eq("") | action.eq("<NA>")
+    sim_pending = df["monitoring_mode"].eq("simulation_live") & missing
+    fallback = missing & ~sim_pending
+    action.loc[fallback] = df.loc[fallback, "recommendation"].astype("string")
+    action.loc[sim_pending] = "Awaiting Operations Review"
+    df["business_action"] = action
+
+    verified = df["business_action"].eq("Hold for Verification")
+    released = df["business_action"].eq("Approve for Fulfillment")
+    pending = df["business_action"].eq("Awaiting Operations Review")
     verified_df = df.loc[verified].copy()
     orders = int(len(df))
     verified_n = int(verified.sum())
@@ -115,26 +137,20 @@ def _fallback_operations_business_summary(model_version=None):
             return 0.0
         return float(pd.to_numeric(verified_df[column], errors="coerce").fillna(0.0).sum())
 
-    probs = pd.to_numeric(
-        verified_df.get("probability", pd.Series(index=verified_df.index, dtype=float)),
-        errors="coerce",
-    ).fillna(0.0)
-    expected_cancellations = float(probs.sum())
-    cost_prevented = _sum("expected_avoidable_cost")
-    verification_cost = _sum("intervention_cost")
-    unnecessary_cost = _sum("expected_false_positive_cost")
+    probs = pd.to_numeric(verified_df.get("probability", pd.Series(index=verified_df.index, dtype=float)), errors="coerce").fillna(0.0)
     net_savings = _sum("net_expected_savings")
-
     summary = _empty_business_summary()
     summary.update({
         "scoring_records": int(scoring_records),
         "orders_scored": orders,
+        "orders_pending_review": int(pending.sum()),
+        "orders_released": int(released.sum()),
         "orders_verified": verified_n,
         "verification_rate": float(verified_n / orders) if orders else 0.0,
-        "expected_cancellations_reached": expected_cancellations,
-        "expected_cost_prevented": cost_prevented,
-        "verification_cost": verification_cost,
-        "expected_unnecessary_check_cost": unnecessary_cost,
+        "expected_cancellations_reached": float(probs.sum()),
+        "expected_cost_prevented": _sum("expected_avoidable_cost"),
+        "verification_cost": _sum("intervention_cost"),
+        "expected_unnecessary_check_cost": _sum("expected_false_positive_cost"),
         "expected_net_savings": net_savings,
         "net_savings_per_1000_orders": float(net_savings / orders * 1000.0) if orders else 0.0,
         "average_net_savings_per_verified_order": float(net_savings / verified_n) if verified_n else 0.0,
@@ -405,8 +421,8 @@ with drift_tab:
 with business_tab:
     st.subheader("Operations business impact")
     st.caption(
-        "This tab uses only orders scored through the Operations Manager production workflow (manual and batch scoring). "
-        "Live simulation, historical evaluation, and the model holdout are excluded."
+        "Prototype Business Impact includes live simulated customer orders plus manual and batch Operations scoring. "
+        "Historical evaluation and the model holdout remain excluded. Live simulation still does not contribute to technical drift monitoring."
     )
 
     operations_orders, live_impact = operations_business_summary(meta.get("model_version"))
@@ -414,13 +430,12 @@ with business_tab:
 
     if orders_scored == 0:
         st.info(
-            "No Operations Manager production orders have been scored yet. Use Manual Order or Batch Scoring in the Operations workspace to populate this tab. "
-            "Simulation orders intentionally do not count toward business impact."
+            "No Operations orders have entered the prototype workflow yet. Use Live Operations Simulation, Manual Order, or Batch Scoring in the Operations workspace to populate this tab."
         )
         st.markdown("#### What will appear here")
         st.caption(
-            "Once production-like orders are scored, this tab will accumulate expected verification volume, expected cancellations reached, expected cost prevented, "
-            "verification cost, and expected net savings. Each order uses the business assumptions that were stored when it was scored."
+            "Once orders enter the workflow, this tab will show pending reviews, manager releases, verification decisions, expected cancellations reached, expected cost prevented, "
+            "verification cost, and expected net savings. Simulated customer orders count for this prototype, but only manager-approved verification actions claim savings."
         )
     else:
         if live_impact.get("scoring_records", orders_scored) > orders_scored:
@@ -435,37 +450,38 @@ with business_tab:
             )
 
         a, b, c, d = st.columns(4)
-        a.metric("Orders Scored", f"{orders_scored:,}")
-        b.metric(
-            "Orders Recommended for Verification",
-            f"{live_impact['orders_verified']:,}",
-            f"{live_impact['verification_rate']:.1%} of scored orders",
-        )
-        c.metric(
-            "Expected Cancellations Reached",
-            f"{live_impact['expected_cancellations_reached']:.1f}",
-            help="Sum of predicted cancellation probabilities for orders recommended for verification. This is an expectation, not an observed outcome count.",
-        )
+        a.metric("Orders Entered", f"{orders_scored:,}")
+        b.metric("Awaiting Manager Review", f"{live_impact.get('orders_pending_review', 0):,}")
+        c.metric("Released to Fulfillment", f"{live_impact.get('orders_released', 0):,}")
         d.metric(
-            "Expected Net Savings",
-            format_usd(live_impact["expected_net_savings"], fx_rate),
+            "Kept for Verification",
+            f"{live_impact['orders_verified']:,}",
+            f"{live_impact['verification_rate']:.1%} of entered orders",
         )
 
         e, f, g, h = st.columns(4)
-        e.metric("Expected Cost Prevented", format_usd(live_impact["expected_cost_prevented"], fx_rate))
-        f.metric("Verification Cost", format_usd(live_impact["verification_cost"], fx_rate))
-        g.metric(
+        e.metric(
+            "Expected Cancellations Reached",
+            f"{live_impact['expected_cancellations_reached']:.1f}",
+            help="Sum of cancellation probabilities for orders the manager actually kept for verification.",
+        )
+        f.metric("Expected Cost Prevented", format_usd(live_impact["expected_cost_prevented"], fx_rate))
+        g.metric("Verification Cost", format_usd(live_impact["verification_cost"], fx_rate))
+        h.metric("Expected Net Savings", format_usd(live_impact["expected_net_savings"], fx_rate))
+
+        i, j = st.columns(2)
+        i.metric(
             "Expected Cost of Unnecessary Checks",
             format_usd(live_impact["expected_unnecessary_check_cost"], fx_rate),
         )
-        h.metric(
+        j.metric(
             "Expected Net Savings / 1,000 Orders",
             format_usd(live_impact["net_savings_per_1000_orders"], fx_rate),
         )
 
         st.caption(
-            "Expected cost prevented = predicted cancellation risk × loss if cancellation reaches fulfillment × preventable share, summed over orders recommended for verification. "
-            "Expected net savings subtracts verification cost and the expected cost of unnecessary checks."
+            "For the prototype, live simulated customer orders count here. Pending and released orders do not claim verification savings. "
+            "Expected business value is counted only when the Operations Manager chooses to keep an order for verification; batch orders use the automated recommendation."
         )
 
         mode_counts = live_impact.get("mode_counts", {})

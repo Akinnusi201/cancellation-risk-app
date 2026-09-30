@@ -57,6 +57,52 @@ st.info(
     f"Under the current assumptions, a successful verification can prevent about {format_usd(prevented, fx_rate)} of a cancellation-related loss."
 )
 
+
+st.subheader("Prototype Customer Order Queue")
+try:
+    queue = dataframe(
+        """
+        SELECT po.created_at, po.order_id, po.status, po.customer_message,
+               p.probability, p.recommendation
+        FROM prototype_orders po
+        LEFT JOIN predictions p ON p.prediction_id = po.prediction_id
+        ORDER BY po.created_at DESC
+        LIMIT 100
+        """
+    )
+except Exception:
+    queue = None
+
+if queue is None or queue.empty:
+    st.info("No simulated customer orders are waiting yet. Open Score Order → Live Operations Simulation to place the first prototype order.")
+else:
+    pending = int((queue["status"] == "AWAITING_OPERATIONS_REVIEW").sum())
+    released = int((queue["status"] == "RELEASED_TO_FULFILLMENT").sum())
+    verify = int((queue["status"] == "VERIFICATION_REQUIRED").sum())
+    q1, q2, q3 = st.columns(3)
+    q1.metric("Awaiting Review", pending)
+    q2.metric("Released to Fulfillment", released)
+    q3.metric("Verification Required", verify)
+    st.caption(
+        "Prototype flow: customer order placed → automated risk screening → temporary Operations review → manager releases the order or keeps it for verification."
+    )
+    pending_rows = queue[queue["status"] == "AWAITING_OPERATIONS_REVIEW"].copy()
+    if not pending_rows.empty:
+        st.markdown("#### Orders waiting for Operations")
+        pending_rows = pending_rows[["created_at", "order_id", "probability", "recommendation"]].rename(columns={
+            "created_at": "Placed at",
+            "order_id": "Order ID",
+            "probability": "Cancellation risk",
+            "recommendation": "Model recommendation",
+        })
+        pending_rows["Cancellation risk"] = pending_rows["Cancellation risk"].map(lambda x: f"{x:.1%}" if x is not None else "")
+        pending_rows["Model recommendation"] = pending_rows["Model recommendation"].replace({
+            "Hold for Verification": "Keep for verification",
+            "Approve for Fulfillment": "Release to fulfillment",
+        })
+        st.dataframe(pending_rows, use_container_width=True, hide_index=True)
+        st.info("Open **Score Order → Live Operations Simulation** to review the current incoming order and make the manager decision.")
+
 st.subheader("Recent Decisions")
 hist = dataframe(
     "SELECT decided_at, order_id, probability, recommendation, manager_decision, net_expected_savings "

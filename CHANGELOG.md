@@ -1,3 +1,11 @@
+## v3.11 - Prototype customer order lifecycle
+- Live Operations Simulation now mimics a customer order entering a temporary Operations review state before fulfillment.
+- Added persistent prototype order states: awaiting review, released to fulfillment, and verification required.
+- Operations Dashboard now shows the prototype customer order queue and current status counts.
+- Live simulation orders now count toward prototype Business Impact, while remaining excluded from technical drift monitoring.
+- Prototype business value follows the Operations Manager's actual decision when available; pending/released simulated orders do not claim verification savings.
+- Historical Evaluation remains excluded from live prototype business impact.
+
 ## v3.10 - Monitoring import compatibility
 - Prevented Model Monitoring from crashing during partial deployments where `views/7_Model_Monitoring.py` is newer than `src/monitoring/metrics.py`.
 - Added a local Operations Business Impact fallback and lazy monitoring-helper resolution.

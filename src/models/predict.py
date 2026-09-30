@@ -48,6 +48,67 @@ def _feature_payload(row: pd.DataFrame):
     return json.dumps(payload, default=str)
 
 
+def _prototype_workflow_id(order_id):
+    return f"proto_{str(order_id)}"
+
+
+def create_prototype_order(scored, order_id):
+    """Create/reset the prototype customer order as awaiting Operations review."""
+    workflow_id = _prototype_workflow_id(order_id)
+    with connect() as con:
+        con.execute(
+            """
+            INSERT OR REPLACE INTO prototype_orders
+            (workflow_id, prediction_id, order_id, created_at, status, manager_decision, decided_at, customer_message)
+            VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)
+            """,
+            [
+                workflow_id,
+                scored["prediction_id"],
+                str(order_id),
+                now(),
+                "AWAITING_OPERATIONS_REVIEW",
+                "Order received. Please wait while our operations team completes a short verification review.",
+            ],
+        )
+    return workflow_id
+
+
+def update_prototype_order(prediction_id, decision):
+    """Update the customer-facing prototype order state after a manager decision."""
+    if decision == "Approve for Fulfillment":
+        status = "RELEASED_TO_FULFILLMENT"
+        message = "Order approved. Your order has been released to fulfillment."
+    else:
+        status = "VERIFICATION_REQUIRED"
+        message = "Additional verification is required before fulfillment. The order remains on hold."
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE prototype_orders
+            SET status = ?, manager_decision = ?, decided_at = ?, customer_message = ?
+            WHERE prediction_id = ?
+            """,
+            [status, decision, now(), message, prediction_id],
+        )
+    return status
+
+
+def prototype_order_status(prediction_id):
+    with connect() as con:
+        row = con.execute(
+            """
+            SELECT workflow_id, order_id, created_at, status, manager_decision, decided_at, customer_message
+            FROM prototype_orders WHERE prediction_id = ?
+            """,
+            [prediction_id],
+        ).fetchone()
+    if not row:
+        return None
+    keys = ["workflow_id", "order_id", "created_at", "status", "manager_decision", "decided_at", "customer_message"]
+    return dict(zip(keys, row))
+
+
 def score_order(
     row: pd.DataFrame,
     reference: pd.DataFrame,
@@ -105,7 +166,7 @@ def score_order(
                     _feature_payload(row),
                 ],
             )
-    return {
+    result = {
         "prediction_id": prediction_id,
         "probability": prob,
         "threshold": threshold,
@@ -115,8 +176,12 @@ def score_order(
         "actual_outcome": actual,
         "latency_ms": latency_ms,
         "meta": meta,
+        "scoring_mode": scoring_mode,
         **economics,
     }
+    if persist and scoring_mode == "simulation_live":
+        create_prototype_order(result, row.iloc[0]["order_id"])
+    return result
 
 
 def score_batch(rows: pd.DataFrame, policy=None, log_runtime=True, persist=True):
@@ -233,4 +298,9 @@ def record_decision(scored, order_id, decision):
                 scored.get("policy", {}).get("false_positive_friction_cost"),
             ],
         )
+    try:
+        update_prototype_order(scored["prediction_id"], decision)
+    except Exception:
+        # Non-prototype orders do not have a prototype lifecycle row.
+        pass
     return decision_id

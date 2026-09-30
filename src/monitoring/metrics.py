@@ -19,28 +19,24 @@ PRODUCTION_SCORING_MODES = {
 MIN_MONITORING_OBSERVATIONS = 100
 
 
-# Business-impact reporting is intentionally narrower than technical runtime
-# monitoring. It represents orders scored from the Operations Manager workflow,
-# not simulations, historical evaluation, or generic API traffic.
+# Prototype business-impact reporting includes live simulated customer orders
+# alongside manual/batch Operations scoring. This is intentionally broader than
+# technical drift monitoring, where simulation remains excluded.
 OPERATIONS_BUSINESS_MODES = {
     "manual",
     "batch",
     "production_manual",
     "production_batch",
+    "simulation_live",
 }
 
 
-def summarize_operations_business(predictions: pd.DataFrame):
-    """Summarize expected business value from Operations Manager scoring only.
-
-    Business impact uses the economic assumptions persisted with each prediction,
-    so changing today's UI assumptions does not rewrite prior results. If an order
-    is rescored, only its latest production-like score is counted to avoid
-    double-counting the same order's expected value.
-    """
-    empty_summary = {
+def _empty_operations_business_summary():
+    return {
         "scoring_records": 0,
         "orders_scored": 0,
+        "orders_pending_review": 0,
+        "orders_released": 0,
         "orders_verified": 0,
         "verification_rate": 0.0,
         "expected_cancellations_reached": 0.0,
@@ -54,6 +50,17 @@ def summarize_operations_business(predictions: pd.DataFrame):
         "first_scored_at": None,
         "last_scored_at": None,
     }
+
+
+def summarize_operations_business(predictions: pd.DataFrame):
+    """Summarize prototype business value from Operations-facing scoring.
+
+    Live simulation counts for the prototype, but it remains excluded from model
+    drift monitoring. For simulated customer orders, economic impact is counted
+    only after the Operations Manager makes a decision. Manual/batch records that
+    have no explicit manager decision fall back to the system recommendation.
+    """
+    empty_summary = _empty_operations_business_summary()
     if predictions is None or predictions.empty:
         return pd.DataFrame(), empty_summary
 
@@ -70,15 +77,28 @@ def summarize_operations_business(predictions: pd.DataFrame):
         df["predicted_at"] = pd.to_datetime(df["predicted_at"], errors="coerce")
         df = df.sort_values("predicted_at")
 
-    # Re-scoring the same order is operationally one order, not a second source
-    # of savings. Keep the newest production-like prediction per order.
     if "order_id" in df.columns:
         order_key = df["order_id"].astype("string")
         if "prediction_id" in df.columns:
             order_key = order_key.fillna(df["prediction_id"].astype("string"))
         df = df.assign(_order_key=order_key).drop_duplicates("_order_key", keep="last")
 
-    verified = df["recommendation"].eq("Hold for Verification")
+    # Actual manager decisions control the prototype action when available.
+    manager = df.get("manager_decision", pd.Series(index=df.index, dtype="object"))
+    manager = manager.astype("string")
+    action = manager.copy()
+    no_manager_action = action.isna() | action.eq("") | action.eq("<NA>")
+
+    # A newly created simulated customer order remains pending until reviewed.
+    simulation_pending = df["monitoring_mode"].eq("simulation_live") & no_manager_action
+    fallback = no_manager_action & ~simulation_pending
+    action.loc[fallback] = df.loc[fallback, "recommendation"].astype("string")
+    action.loc[simulation_pending] = "Awaiting Operations Review"
+    df["business_action"] = action
+
+    verified = df["business_action"].eq("Hold for Verification")
+    released = df["business_action"].eq("Approve for Fulfillment")
+    pending = df["business_action"].eq("Awaiting Operations Review")
     verified_df = df.loc[verified].copy()
     orders = int(len(df))
     verified_n = int(verified.sum())
@@ -98,6 +118,8 @@ def summarize_operations_business(predictions: pd.DataFrame):
     summary = {
         "scoring_records": int(scoring_records),
         "orders_scored": orders,
+        "orders_pending_review": int(pending.sum()),
+        "orders_released": int(released.sum()),
         "orders_verified": verified_n,
         "verification_rate": float(verified_n / orders) if orders else 0.0,
         "expected_cancellations_reached": expected_cancellations,
@@ -115,7 +137,7 @@ def summarize_operations_business(predictions: pd.DataFrame):
 
 
 def operations_business_summary(model_version=None):
-    """Load persisted Operations Manager predictions and summarize business value."""
+    """Load Operations/prototype predictions and their latest manager decisions."""
     from src.database.duckdb_manager import dataframe
 
     where = "" if model_version is None else " WHERE model_version = ?"
@@ -131,12 +153,26 @@ def operations_business_summary(model_version=None):
             """,
             params,
         )
+        decisions = dataframe(
+            """
+            SELECT prediction_id, manager_decision, decided_at
+            FROM manager_decisions
+            ORDER BY decided_at
+            """
+        )
+        if not decisions.empty:
+            decisions["decided_at"] = pd.to_datetime(decisions["decided_at"], errors="coerce")
+            decisions = decisions.sort_values("decided_at").drop_duplicates("prediction_id", keep="last")
+            predictions = predictions.merge(
+                decisions[["prediction_id", "manager_decision"]],
+                on="prediction_id",
+                how="left",
+            )
+        else:
+            predictions["manager_decision"] = None
     except Exception:
-        # Rolling-upgrade compatibility: return an empty live-impact population
-        # instead of breaking the monitoring page if an older DB lacks fields.
         predictions = pd.DataFrame()
     return summarize_operations_business(predictions)
-
 
 def population_stability_index(reference, current, bins=10):
     """Population Stability Index using reference quantile bins."""

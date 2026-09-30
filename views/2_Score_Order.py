@@ -9,6 +9,7 @@ from src.auth import require_role
 from src.business import load_policy
 from src.features.inference_features import prepare_order_features
 from src.models.predict import record_decision, score_batch, score_order
+from src.models import predict as predict_module
 from src.config import ARTIFACT_DIR
 from src.models.registry import active_metadata
 from src.ui import common as ui_common
@@ -132,6 +133,33 @@ def load_historical_demo_orders():
     # queue is unavailable until the full upgrade is copied.
     return load_demo_orders()
 
+def get_prototype_status(prediction_id):
+    loader = getattr(predict_module, "prototype_order_status", None)
+    if callable(loader):
+        try:
+            return loader(prediction_id)
+        except Exception:
+            return None
+    return None
+
+
+def show_customer_order_status(sc, decision_made=False):
+    """Render the customer-facing state for the live prototype order flow."""
+    state = get_prototype_status(sc.get("prediction_id")) or {}
+    status = state.get("status")
+    message = state.get("customer_message")
+
+    st.markdown("### Customer order status")
+    if status == "RELEASED_TO_FULFILLMENT":
+        st.success(message or "Order approved. Your order has been released to fulfillment.")
+        st.caption("Flow: Order placed ✓  →  Risk screening ✓  →  Operations review ✓  →  Released to fulfillment ✓")
+    elif status == "VERIFICATION_REQUIRED":
+        st.warning(message or "Additional verification is required before fulfillment.")
+        st.caption("Flow: Order placed ✓  →  Risk screening ✓  →  Operations review ✓  →  Verification required")
+    else:
+        st.info(message or "Order received. Please wait while our operations team completes a short verification review.")
+        st.caption("Flow: Order placed ✓  →  Risk screening ✓  →  Awaiting Operations review …")
+
 require_role("manager")
 st.title("🛒 Score Order")
 st.caption("Use the packaged production model immediately. No DataOps or training step is required.")
@@ -205,8 +233,8 @@ with tabs[0]:
     if mode == "Live Operations Simulation":
         demo = load_demo_orders()
         st.info(
-            "Live simulation is deliberately stratified across low, medium, and high model-risk orders so managers see a useful mix of decisions. "
-            "It is a demo queue, not an estimate of the historical cancellation prevalence."
+            "Prototype customer flow: a simulated customer places an order, the model screens it, and the customer temporarily sees **Awaiting Operations Review**. "
+            "The Operations Manager then releases the order or keeps it for verification. Live simulation counts toward prototype Business Impact, but remains excluded from drift monitoring."
         )
         index_key = "live_queue_index"
         scoring_mode = "simulation_live"
@@ -232,6 +260,11 @@ with tabs[0]:
             st.session_state.decision_made = False
         sc = st.session_state.current_score
 
+        if mode == "Live Operations Simulation":
+            show_customer_order_status(sc, st.session_state.get("decision_made", False))
+            st.markdown("### Operations review")
+            st.caption("The order has reached the Operations queue. Review the model signal and choose what happens next.")
+
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Order ID", str(row.iloc[0]["order_id"]))
         c2.metric("Order Value", format_usd(row.iloc[0]["grand_total"], fx_rate))
@@ -248,7 +281,7 @@ with tabs[0]:
             record_decision(decision_payload, row.iloc[0]["order_id"], "Approve for Fulfillment")
             st.session_state.decision_made = True
             st.rerun()
-        if b2.button("🟠 Verify Before Fulfillment", use_container_width=True, disabled=st.session_state.get("decision_made", False)):
+        if b2.button("🟠 Keep for Verification", use_container_width=True, disabled=st.session_state.get("decision_made", False)):
             record_decision(decision_payload, row.iloc[0]["order_id"], "Hold for Verification")
             st.session_state.decision_made = True
             st.rerun()
@@ -257,8 +290,14 @@ with tabs[0]:
             if mode == "Historical Evaluation":
                 st.info(f"Historical outcome: **{sc.get('actual_outcome', 'Unavailable')}**")
             else:
-                st.info("Decision recorded. The outcome remains hidden in Live Operations Simulation mode.")
-            if st.button("Next Incoming Order →", type="primary"):
+                status = get_prototype_status(sc.get("prediction_id")) or {}
+                if status.get("status") == "RELEASED_TO_FULFILLMENT":
+                    st.success("Operations decision recorded: the customer order is released to fulfillment.")
+                else:
+                    st.warning("Operations decision recorded: the customer order remains on hold for verification.")
+                st.caption("The true historical outcome remains hidden in Live Operations Simulation mode.")
+            next_label = "Place Next Simulated Customer Order →" if mode == "Live Operations Simulation" else "Next Historical Order →"
+            if st.button(next_label, type="primary"):
                 st.session_state[index_key] += 1
                 st.session_state.current_score = None
                 st.session_state.decision_made = False

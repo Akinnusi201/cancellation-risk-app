@@ -26,7 +26,7 @@ Navigation is built with `st.navigation` and only exposes pages permitted for th
 
 - Operations Dashboard
 - Score Order
-  - incoming-order simulation
+  - incoming-order simulation with a prototype customer-to-Operations review lifecycle
   - manual order scoring
   - batch CSV scoring
 - Decision History
@@ -116,7 +116,7 @@ Training a candidate never changes production automatically. Evaluation includes
 
 ## Monitoring and business evaluation
 
-The developer monitoring page now measures runtime model latency, verification/high-risk rates, pipeline success, prediction drift, input-feature drift, and labeled holdout business impact. Runtime drift and live operating statistics use only explicitly production-like traffic (`manual`, `batch`, or API-style scoring). Live simulation and historical evaluation are logged for auditability but excluded from drift calculations. Monitoring requires at least 100 eligible production-like predictions before reporting STABLE, WATCH, or DRIFT. A packaged holdout probability file supports aggregate estimated savings and three simple what-if scenarios without retraining the model.
+The developer monitoring page now measures runtime model latency, verification/high-risk rates, pipeline success, prediction drift, input-feature drift, prototype business impact, and labeled holdout backtesting. Runtime drift uses only explicitly production-like traffic (`manual`, `batch`, or API-style scoring); live simulation remains excluded from drift. For the class prototype, live simulation does count toward Business Impact after it enters the customer-to-Operations workflow, and simulated verification savings are counted only when the manager actually keeps the order for verification. Monitoring requires at least 100 eligible production-like predictions before reporting STABLE, WATCH, or DRIFT. A packaged holdout probability file supports historical economic backtesting without retraining the model.
 
 ## DevOps automation
 
@@ -177,7 +177,7 @@ python scripts/build_seed_artifacts.py "/path/to/Pakistan Largest Ecommerce Data
 This script is not called by Streamlit startup.
 
 ### Simulation modes
-The Operations workspace has two intentionally different simulation modes. **Live Operations Simulation** is a deterministic, risk-stratified queue of real holdout orders (35% low predicted risk, 30% medium, 35% high) so a demo contains meaningful operational choices; it is not intended to estimate cancellation prevalence. **Historical Evaluation** is a natural sample of the final temporal holdout and preserves that period's actual class distribution.
+The Operations workspace has two intentionally different simulation modes. **Live Operations Simulation** is a deterministic, risk-stratified queue of real holdout orders (35% low predicted risk, 30% medium, 35% high) so a demo contains meaningful operational choices. Each simulated customer order enters an **Awaiting Operations Review** state, after which the manager either releases it to fulfillment or keeps it for verification. These live simulated orders count toward prototype Business Impact but remain excluded from technical drift statistics. **Historical Evaluation** is a natural sample of the final temporal holdout and preserves that period's actual class distribution.
 
 ### If GitHub Actions is not detected
 The canonical workflow is `.github/workflows/ci.yml`. A visible recovery copy is also included as `GITHUB_ACTIONS_CI.yml` for cases where hidden folders were skipped during copying. From the repository root:

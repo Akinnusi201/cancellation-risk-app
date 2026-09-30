@@ -3,7 +3,7 @@ import pandas as pd
 from src.monitoring.metrics import summarize_operations_business
 
 
-def test_operations_business_impact_excludes_simulation_and_historical_and_dedupes_orders():
+def test_operations_business_impact_includes_live_simulation_but_not_historical_and_dedupes_orders():
     predictions = pd.DataFrame([
         {
             "prediction_id": "p1",
@@ -16,6 +16,7 @@ def test_operations_business_impact_excludes_simulation_and_historical_and_dedup
             "net_expected_savings": 68.0,
             "intervention_cost": 10.0,
             "scoring_mode": "manual",
+            "manager_decision": None,
         },
         # Same order rescored later. Only this latest record should count.
         {
@@ -29,6 +30,7 @@ def test_operations_business_impact_excludes_simulation_and_historical_and_dedup
             "net_expected_savings": 79.0,
             "intervention_cost": 10.0,
             "scoring_mode": "manual",
+            "manager_decision": None,
         },
         {
             "prediction_id": "p3",
@@ -41,24 +43,40 @@ def test_operations_business_impact_excludes_simulation_and_historical_and_dedup
             "net_expected_savings": -1.0,
             "intervention_cost": 17.0,
             "scoring_mode": "batch",
+            "manager_decision": None,
         },
-        # Demo/evaluation traffic must not contaminate live business impact.
+        # Live simulation counts for the prototype, but savings follow the manager's action.
         {
             "prediction_id": "p4",
-            "order_id": "SIM",
+            "order_id": "SIM-VERIFY",
             "predicted_at": "2026-09-30 10:07:00",
-            "probability": 0.99,
+            "probability": 0.70,
             "recommendation": "Hold for Verification",
-            "expected_avoidable_cost": 999.0,
-            "expected_false_positive_cost": 0.0,
-            "net_expected_savings": 989.0,
+            "expected_avoidable_cost": 70.0,
+            "expected_false_positive_cost": 3.0,
+            "net_expected_savings": 57.0,
             "intervention_cost": 10.0,
             "scoring_mode": "simulation_live",
+            "manager_decision": "Hold for Verification",
         },
         {
             "prediction_id": "p5",
-            "order_id": "HIST",
+            "order_id": "SIM-PENDING",
             "predicted_at": "2026-09-30 10:08:00",
+            "probability": 0.95,
+            "recommendation": "Hold for Verification",
+            "expected_avoidable_cost": 95.0,
+            "expected_false_positive_cost": 1.0,
+            "net_expected_savings": 84.0,
+            "intervention_cost": 10.0,
+            "scoring_mode": "simulation_live",
+            "manager_decision": None,
+        },
+        # Historical evaluation remains excluded.
+        {
+            "prediction_id": "p6",
+            "order_id": "HIST",
+            "predicted_at": "2026-09-30 10:09:00",
             "probability": 0.95,
             "recommendation": "Hold for Verification",
             "expected_avoidable_cost": 950.0,
@@ -66,34 +84,45 @@ def test_operations_business_impact_excludes_simulation_and_historical_and_dedup
             "net_expected_savings": 940.0,
             "intervention_cost": 10.0,
             "scoring_mode": "simulation_historical",
+            "manager_decision": "Hold for Verification",
         },
     ])
 
     used, summary = summarize_operations_business(predictions)
 
-    assert summary["scoring_records"] == 3  # two A scores + one B score before dedupe
-    assert summary["orders_scored"] == 2
-    assert set(used["order_id"]) == {"A", "B"}
-    assert summary["orders_verified"] == 1
-    assert summary["verification_rate"] == 0.5
-    assert summary["expected_cancellations_reached"] == 0.9
-    assert summary["expected_cost_prevented"] == 90.0
-    assert summary["verification_cost"] == 10.0
-    assert summary["expected_unnecessary_check_cost"] == 1.0
-    assert summary["expected_net_savings"] == 79.0
-    assert summary["net_savings_per_1000_orders"] == 39500.0
+    assert summary["scoring_records"] == 5  # A twice, B, and two live simulation records
+    assert summary["orders_scored"] == 4
+    assert set(used["order_id"]) == {"A", "B", "SIM-VERIFY", "SIM-PENDING"}
+    assert summary["orders_pending_review"] == 1
+    assert summary["orders_released"] == 1  # batch fallback recommendation
+    assert summary["orders_verified"] == 2  # manual A + manager-approved SIM-VERIFY
+    assert summary["expected_cancellations_reached"] == 1.6
+    assert summary["expected_cost_prevented"] == 160.0
+    assert summary["verification_cost"] == 20.0
+    assert summary["expected_unnecessary_check_cost"] == 4.0
+    assert summary["expected_net_savings"] == 136.0
+    assert summary["net_savings_per_1000_orders"] == 34000.0
 
 
-def test_operations_business_impact_is_empty_for_demo_only():
-    predictions = pd.DataFrame({
-        "prediction_id": ["p1", "p2"],
-        "order_id": ["A", "B"],
-        "predicted_at": ["2026-09-30", "2026-09-30"],
-        "probability": [0.9, 0.8],
-        "recommendation": ["Hold for Verification", "Hold for Verification"],
-        "scoring_mode": ["simulation_live", "simulation_historical"],
-    })
+def test_pending_live_simulation_counts_as_order_but_claims_no_savings_until_manager_decides():
+    predictions = pd.DataFrame([
+        {
+            "prediction_id": "p1",
+            "order_id": "SIM",
+            "predicted_at": "2026-09-30",
+            "probability": 0.9,
+            "recommendation": "Hold for Verification",
+            "expected_avoidable_cost": 90.0,
+            "expected_false_positive_cost": 1.0,
+            "net_expected_savings": 79.0,
+            "intervention_cost": 10.0,
+            "scoring_mode": "simulation_live",
+            "manager_decision": None,
+        }
+    ])
     used, summary = summarize_operations_business(predictions)
-    assert used.empty
-    assert summary["orders_scored"] == 0
+    assert not used.empty
+    assert summary["orders_scored"] == 1
+    assert summary["orders_pending_review"] == 1
+    assert summary["orders_verified"] == 0
     assert summary["expected_net_savings"] == 0.0

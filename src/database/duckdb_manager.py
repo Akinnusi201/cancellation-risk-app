@@ -77,6 +77,16 @@ CREATE TABLE IF NOT EXISTS manager_decisions (
     intervention_cost DOUBLE,
     false_positive_friction_cost DOUBLE
 );
+CREATE TABLE IF NOT EXISTS prototype_orders (
+    workflow_id VARCHAR PRIMARY KEY,
+    prediction_id VARCHAR,
+    order_id VARCHAR,
+    created_at TIMESTAMP,
+    status VARCHAR,
+    manager_decision VARCHAR,
+    decided_at TIMESTAMP,
+    customer_message VARCHAR
+);
 CREATE TABLE IF NOT EXISTS system_events (
     event_id VARCHAR PRIMARY KEY,
     created_at TIMESTAMP,

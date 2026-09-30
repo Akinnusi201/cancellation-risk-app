@@ -75,3 +75,22 @@ GitHub Actions runs tests and a packaged-inference smoke test on each push/pull 
 
 ## Currency presentation layer
 Production inference preserves the original Pakistan dataset's PKR-denominated features. A separate presentation-layer FX adapter retrieves the latest PKR→USD rate (State Bank of Pakistan via Frankfurter), caches it for one hour, and converts user-facing amounts to USD. Manual and batch USD inputs are converted back to PKR before feature preparation. This keeps the model feature contract stable while making the operational and economic UI easier to interpret for a U.S.-based audience.
+
+## Prototype customer order lifecycle
+
+For the class demo, Live Operations Simulation mimics an incoming customer order moving through a lightweight operational gate:
+
+```text
+Customer places order
+        ↓
+Automated cancellation-risk scoring
+        ↓
+Awaiting Operations Review
+        ↓
+Operations Manager decision
+   ┌───────────────┴───────────────┐
+   ↓                               ↓
+Release to fulfillment       Keep for verification
+```
+
+Live simulated orders are included in **prototype Business Impact** so the demo accumulates operational activity. Their actual manager decision controls whether verification savings are counted. Pending and released simulated orders do not claim verification savings. Live simulation remains excluded from production drift calculations because the demo queue is deliberately risk-stratified and is not representative production traffic. Historical Evaluation remains separate and preserves the natural temporal holdout distribution.
