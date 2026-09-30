@@ -6,7 +6,10 @@
 - Removed startup dependence on prior DataOps/MLflow runtime state.
 
 ## Authentication and roles
-- Added Operations Manager and Developer authentication through Streamlit secrets/environment variables.
+- Fixed Streamlit Cloud startup failure caused by an extra DuckDB prepared-statement parameter during seed registration.
+- Moved runtime bootstrap until after role selection so the landing page is independent of the data store.
+- Moved role pages out of Streamlit's special `pages/` directory to prevent automatic sidebar exposure.
+- Added passwordless Operations Manager / Developer role selection for the class demo, with role-specific dynamic navigation.
 - Added role-specific `st.navigation` menus.
 
 ## Operations workflow

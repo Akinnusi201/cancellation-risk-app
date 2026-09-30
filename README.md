@@ -41,30 +41,15 @@ Operations users can change economic assumptions for a scoring session, but they
 - MLflow Experiments
 - System Status
 
-## Authentication
+## Role-based landing page
 
-Credentials are read from Streamlit secrets or equivalent environment variables. **Do not commit real passwords.**
+The app opens on a passwordless role-selection page for the class demonstration. Choose **Operations Manager** or **Developer**.
 
-Copy `.streamlit/secrets.example.toml` to `.streamlit/secrets.toml` for local development, or add the same TOML in Streamlit Community Cloud → App settings → Secrets:
+- Operations Manager can only access Operations Dashboard, Score Order, and Decision History.
+- Developer can only access Developer Dashboard, DataOps, ModelOps, Model Monitoring, MLflow Experiments, and System Status.
+- Role-specific pages are registered dynamically with `st.navigation`, and page files live under `views/` instead of Streamlit's special `pages/` directory. This prevents hidden developer pages from appearing in Operations navigation.
 
-```toml
-[auth.manager]
-username = "operations"
-password = "<manager-password>"
-
-[auth.developer]
-username = "developer"
-password = "<developer-password>"
-```
-
-Equivalent environment variables are:
-
-```text
-AUTH_MANAGER_USERNAME
-AUTH_MANAGER_PASSWORD
-AUTH_DEVELOPER_USERNAME
-AUTH_DEVELOPER_PASSWORD
-```
+For a real production deployment, replace the demo role selector with SSO/OIDC or another authenticated identity provider.
 
 ## Production startup path
 
@@ -167,10 +152,9 @@ These runtime stores are fine for a classroom prototype. For a persistent produc
 1. Push the project to GitHub.
 2. Create a Streamlit Community Cloud app pointing to `app.py`.
 3. Use Python 3.12.
-4. Add the authentication secrets shown above.
-5. Deploy.
+4. Deploy.
 
-The app should open to the login page and be prediction-ready immediately after authentication.
+The app should open to the role-selection login page and be prediction-ready immediately after choosing a workspace.
 
 ## Rebuilding the packaged baseline
 

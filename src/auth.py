@@ -1,87 +1,84 @@
-import hmac
-import os
-from typing import Optional
-
 import streamlit as st
 
 
 ROLES = {"manager": "Operations Manager", "developer": "Developer"}
 
 
-def _secret_value(role: str, key: str) -> Optional[str]:
-    try:
-        auth = st.secrets.get("auth", {})
-        role_cfg = auth.get(role, {}) if hasattr(auth, "get") else {}
-        value = role_cfg.get(key) if hasattr(role_cfg, "get") else None
-        if value is not None:
-            return str(value)
-    except Exception:
-        pass
-    env_name = f"AUTH_{role.upper()}_{key.upper()}"
-    value = os.getenv(env_name)
-    return value if value else None
-
-
-def auth_is_configured() -> bool:
-    return all(
-        _secret_value(role, key)
-        for role in ROLES
-        for key in ("username", "password")
-    )
-
-
-def authenticate(username: str, password: str) -> Optional[str]:
-    for role in ROLES:
-        expected_user = _secret_value(role, "username")
-        expected_password = _secret_value(role, "password")
-        if not expected_user or not expected_password:
-            continue
-        if hmac.compare_digest(username.strip(), expected_user) and hmac.compare_digest(password, expected_password):
-            return role
-    return None
+def _sign_in_as(role: str) -> None:
+    if role not in ROLES:
+        return
+    st.session_state.authenticated = True
+    st.session_state.role = role
+    st.session_state.username = ROLES[role]
+    st.rerun()
 
 
 def login_screen() -> None:
+    """Passwordless role-selection landing page for the class demonstration."""
     st.title("Profit-Aware Order Cancellation Risk")
-    st.caption("Group 10 • Production inference separated from DataOps and ModelOps")
+    st.caption("Group 10 • Select the workspace you want to enter")
 
-    if not auth_is_configured():
-        st.error("Authentication is not configured for this deployment.")
-        st.code(
-            '[auth.manager]\nusername = "operations"\npassword = "<manager-password>"\n\n'
-            '[auth.developer]\nusername = "developer"\npassword = "<developer-password>"',
-            language="toml",
+    st.write("")
+    left, right = st.columns(2, gap="large")
+
+    with left:
+        st.subheader("📦 Operations Manager")
+        st.write(
+            "Score incoming orders, review profit-aware intervention recommendations, "
+            "and record operational decisions."
         )
-        st.info("Add these values in Streamlit Cloud → App settings → Secrets, or use the matching AUTH_* environment variables locally.")
-        return
+        if st.button(
+            "Enter Operations Workspace",
+            type="primary",
+            use_container_width=True,
+            key="login_manager",
+        ):
+            _sign_in_as("manager")
 
-    with st.form("login_form", clear_on_submit=False):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
-    if submitted:
-        role = authenticate(username, password)
-        if role:
-            st.session_state.authenticated = True
-            st.session_state.role = role
-            st.session_state.username = username.strip()
-            st.rerun()
-        st.error("Invalid username or password.")
+    with right:
+        st.subheader("🛠️ Developer")
+        st.write(
+            "Manage DataOps, train candidate models, review MLflow experiments, "
+            "monitor performance, and promote approved models."
+        )
+        if st.button(
+            "Enter Developer Workspace",
+            use_container_width=True,
+            key="login_developer",
+        ):
+            _sign_in_as("developer")
+
+    st.info(
+        "This course prototype uses passwordless role selection. Role-based routing still "
+        "keeps Operations and Developer pages separate inside the application."
+    )
 
 
 def logout_button() -> None:
     label = ROLES.get(st.session_state.get("role"), "User")
-    st.sidebar.caption(f"Signed in as **{label}**")
+    st.sidebar.caption(f"Workspace: **{label}**")
     if st.sidebar.button("Sign out", use_container_width=True):
-        for key in ["authenticated", "role", "username", "queue_index", "current_score", "decision_made"]:
+        for key in [
+            "authenticated",
+            "role",
+            "username",
+            "queue_index",
+            "current_score",
+            "decision_made",
+            "sim_score_key",
+        ]:
             st.session_state.pop(key, None)
         st.rerun()
 
 
 def require_role(role: str) -> None:
+    """Defense-in-depth guard for every role-specific page."""
     if not st.session_state.get("authenticated"):
-        st.error("Sign in to access this page.")
-        st.stop()
+        st.session_state.pop("role", None)
+        st.switch_page("app.py")
+
     if st.session_state.get("role") != role:
-        st.error("This page is not available for your account role.")
+        # A page file may still be invoked during development or from stale browser
+        # history. Never render protected content for the wrong role.
+        st.warning("That page is not available in your current workspace.")
         st.stop()

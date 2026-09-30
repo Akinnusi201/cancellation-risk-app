@@ -53,7 +53,7 @@ def initialize_runtime() -> None:
             """,
             [
                 SEED_VERSION, now(), "seed_batch", row_count, order_count,
-                str(SEED_PATH), str(SEED_QUARANTINE), str(SEED_REPORT), True,
+                str(SEED_PATH), str(SEED_QUARANTINE), str(SEED_REPORT),
             ],
         )
         con.execute(
