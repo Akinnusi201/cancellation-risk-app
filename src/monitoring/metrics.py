@@ -19,9 +19,9 @@ PRODUCTION_SCORING_MODES = {
 MIN_MONITORING_OBSERVATIONS = 100
 
 
-# Prototype business-impact reporting includes live simulated customer orders
-# alongside manual/batch Operations scoring. This is intentionally broader than
-# technical drift monitoring, where simulation remains excluded.
+# Business-impact reporting includes Operations scoring plus optional live demo
+# simulation. This is intentionally broader than technical drift monitoring, where
+# simulation remains excluded so demo sampling cannot create false drift alerts.
 OPERATIONS_BUSINESS_MODES = {
     "manual",
     "batch",
@@ -52,13 +52,13 @@ def _empty_operations_business_summary():
     }
 
 
-def summarize_operations_business(predictions: pd.DataFrame):
-    """Summarize prototype business value from Operations-facing scoring.
+def summarize_operations_business(predictions: pd.DataFrame, include_demo=True):
+    """Summarize business value from Operations-facing scoring.
 
-    Live simulation counts for the prototype, but it remains excluded from model
-    drift monitoring. For simulated customer orders, economic impact is counted
-    only after the Operations Manager makes a decision. Manual/batch records that
-    have no explicit manager decision fall back to the system recommendation.
+    Live simulation can count for demo reporting, but remains excluded from model
+    drift monitoring. Interactive single-order flows count economic impact only after
+    the Operations Manager makes a decision. Batch records fall back to the system
+    recommendation because they are processed as an automated batch policy.
     """
     empty_summary = _empty_operations_business_summary()
     if predictions is None or predictions.empty:
@@ -68,7 +68,10 @@ def summarize_operations_business(predictions: pd.DataFrame):
     if "scoring_mode" not in df.columns:
         return pd.DataFrame(), empty_summary
     df["monitoring_mode"] = df["scoring_mode"].map(normalize_scoring_mode)
-    df = df[df["monitoring_mode"].isin(OPERATIONS_BUSINESS_MODES)].copy()
+    allowed_modes = set(OPERATIONS_BUSINESS_MODES)
+    if not include_demo:
+        allowed_modes.discard("simulation_live")
+    df = df[df["monitoring_mode"].isin(allowed_modes)].copy()
     if df.empty:
         return df, empty_summary
 
@@ -83,17 +86,17 @@ def summarize_operations_business(predictions: pd.DataFrame):
             order_key = order_key.fillna(df["prediction_id"].astype("string"))
         df = df.assign(_order_key=order_key).drop_duplicates("_order_key", keep="last")
 
-    # Actual manager decisions control the prototype action when available.
+    # Actual manager decisions control the application action when available.
     manager = df.get("manager_decision", pd.Series(index=df.index, dtype="object"))
     manager = manager.astype("string")
     action = manager.copy()
     no_manager_action = action.isna() | action.eq("") | action.eq("<NA>")
 
-    # A newly created simulated customer order remains pending until reviewed.
-    simulation_pending = df["monitoring_mode"].eq("simulation_live") & no_manager_action
-    fallback = no_manager_action & ~simulation_pending
+    # Interactive single-order flows remain pending until an Operations Manager acts.
+    interactive_pending = df["monitoring_mode"].isin({"simulation_live", "manual", "production_manual"}) & no_manager_action
+    fallback = no_manager_action & ~interactive_pending
     action.loc[fallback] = df.loc[fallback, "recommendation"].astype("string")
-    action.loc[simulation_pending] = "Awaiting Operations Review"
+    action.loc[interactive_pending] = "Awaiting Operations Review"
     df["business_action"] = action
 
     verified = df["business_action"].eq("Hold for Verification")
@@ -136,9 +139,15 @@ def summarize_operations_business(predictions: pd.DataFrame):
     return df.drop(columns=["_order_key"], errors="ignore"), summary
 
 
-def operations_business_summary(model_version=None):
-    """Load Operations/prototype predictions and their latest manager decisions."""
+def operations_business_summary(model_version=None, include_demo=None):
+    """Load Operations predictions and their latest manager decisions."""
     from src.database.duckdb_manager import dataframe
+    if include_demo is None:
+        try:
+            from src.retraining import load_retraining_settings
+            include_demo = bool(load_retraining_settings().get("include_demo_business_impact", True))
+        except Exception:
+            include_demo = True
 
     where = "" if model_version is None else " WHERE model_version = ?"
     params = [] if model_version is None else [str(model_version)]
@@ -172,7 +181,7 @@ def operations_business_summary(model_version=None):
             predictions["manager_decision"] = None
     except Exception:
         predictions = pd.DataFrame()
-    return summarize_operations_business(predictions)
+    return summarize_operations_business(predictions, include_demo=include_demo)
 
 def population_stability_index(reference, current, bins=10):
     """Population Stability Index using reference quantile bins."""

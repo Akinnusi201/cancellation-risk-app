@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.2 - Full application workflow with optional demo mode
+
+- Made full-dataset retraining the default operating mode.
+- Kept deterministic sampled training as an optional quick run for demos, diagnostics, and constrained compute.
+- Added GPU preference for LightGBM/XGBoost with automatic CPU fallback.
+- Kept direct automatic/manual retraining, MLflow tracking, candidate selection, and human-controlled promotion.
+- Upgraded Manual Order scoring to use the same Operations review lifecycle as interactive incoming orders.
+- Renamed the simulation path as an optional Incoming Order Demo instead of the basis of the application.
+- Added a setting to include or exclude demo simulation from Business Impact while always excluding it from technical drift monitoring.
+- Added training-scope metadata to new model runs for clearer reproducibility and deployment review.
+- Rewrote README and system copy to describe a functional deployment first, with course/demo simplifications documented separately.
+
 ## v4.1 - Direct prototype retraining
 
 - Removed the external managed-notebook execution path from the prototype.

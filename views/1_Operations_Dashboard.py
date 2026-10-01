@@ -59,12 +59,12 @@ st.info(
 )
 
 
-st.subheader("Prototype Customer Order Queue")
+st.subheader("Incoming Order Review Queue")
 try:
     queue = dataframe(
         """
         SELECT po.created_at, po.order_id, po.status, po.customer_message,
-               p.probability, p.recommendation
+               p.probability, p.recommendation, p.scoring_mode
         FROM prototype_orders po
         LEFT JOIN predictions p ON p.prediction_id = po.prediction_id
         ORDER BY po.created_at DESC
@@ -75,7 +75,7 @@ except Exception:
     queue = None
 
 if queue is None or queue.empty:
-    st.info("No simulated customer orders are waiting yet. Open Score Order → Live Operations Simulation to place the first prototype order.")
+    st.info("No interactive orders are waiting yet. Manual single-order scoring and the optional Incoming Order Demo can both create orders for Operations review.")
 else:
     pending = int((queue["status"] == "AWAITING_OPERATIONS_REVIEW").sum())
     released = int((queue["status"] == "RELEASED_TO_FULFILLMENT").sum())
@@ -85,24 +85,26 @@ else:
     q2.metric("Released to Fulfillment", released)
     q3.metric("Verification Required", verify)
     st.caption(
-        "Prototype flow: customer order placed → automated risk screening → temporary Operations review → manager releases the order or keeps it for verification."
+        "Order flow: order received → automated risk screening → Operations review → manager releases the order or keeps it for verification. Manual orders are production-like; simulated orders are clearly tagged as demo traffic."
     )
     pending_rows = queue[queue["status"] == "AWAITING_OPERATIONS_REVIEW"].copy()
     if not pending_rows.empty:
         st.markdown("#### Orders waiting for Operations")
-        pending_rows = pending_rows[["created_at", "order_id", "probability", "recommendation"]].rename(columns={
+        pending_rows = pending_rows[["created_at", "order_id", "probability", "recommendation", "scoring_mode"]].rename(columns={
             "created_at": "Placed at",
             "order_id": "Order ID",
             "probability": "Cancellation risk",
             "recommendation": "Model recommendation",
+            "scoring_mode": "Source",
         })
+        pending_rows["Source"] = pending_rows["Source"].replace({"manual": "Manual order", "simulation_live": "Demo simulation", "production_manual": "Production manual"})
         pending_rows["Cancellation risk"] = pending_rows["Cancellation risk"].map(lambda x: f"{x:.1%}" if x is not None else "")
         pending_rows["Model recommendation"] = pending_rows["Model recommendation"].replace({
             "Hold for Verification": "Keep for verification",
             "Approve for Fulfillment": "Release to fulfillment",
         })
         st.dataframe(pending_rows, use_container_width=True, hide_index=True)
-        st.info("Open **Score Order → Live Operations Simulation** to review the current incoming order and make the manager decision.")
+        st.info("Open **Score Order** to review and decide on the incoming order. Manual orders and demo simulations use the same review workflow.")
 
 st.subheader("Recent Decisions")
 hist = dataframe(

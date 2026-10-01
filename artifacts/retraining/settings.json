@@ -1,7 +1,9 @@
 {
   "automatic_retraining_enabled": true,
-  "training_scope": "fast_prototype",
+  "training_scope": "full_dataset",
   "max_training_rows": 60000,
+  "prefer_gpu_if_available": true,
+  "include_demo_business_impact": true,
   "deployment_policy": "manual_promotion_required",
   "candidate_registration": "automatic"
 }

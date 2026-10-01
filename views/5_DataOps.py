@@ -86,7 +86,7 @@ if up is not None:
                 settings = retraining.load_retraining_settings()
                 if settings.get("automatic_retraining_enabled", True):
                     stage.success(
-                        f"DataOps complete. **{result['dataset_version']}** is versioned. Automatic prototype retraining is enabled, so the five-model suite will run now. "
+                        f"DataOps complete. **{result['dataset_version']}** is versioned. Automatic retraining is enabled, so the five-model suite will run now. "
                         "Production remains unchanged during training."
                     )
                     train_title = st.empty()

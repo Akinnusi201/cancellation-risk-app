@@ -48,13 +48,13 @@ def _feature_payload(row: pd.DataFrame):
     return json.dumps(payload, default=str)
 
 
-def _prototype_workflow_id(order_id):
-    return f"proto_{str(order_id)}"
+def _operations_workflow_id(order_id):
+    return f"ops_{str(order_id)}"
 
 
-def create_prototype_order(scored, order_id):
-    """Create/reset the prototype customer order as awaiting Operations review."""
-    workflow_id = _prototype_workflow_id(order_id)
+def create_operations_order(scored, order_id):
+    """Create/reset an incoming order as awaiting Operations review."""
+    workflow_id = _operations_workflow_id(order_id)
     with connect() as con:
         con.execute(
             """
@@ -74,8 +74,8 @@ def create_prototype_order(scored, order_id):
     return workflow_id
 
 
-def update_prototype_order(prediction_id, decision):
-    """Update the customer-facing prototype order state after a manager decision."""
+def update_operations_order(prediction_id, decision):
+    """Update the customer-facing order state after a manager decision."""
     if decision == "Approve for Fulfillment":
         status = "RELEASED_TO_FULFILLMENT"
         message = "Order approved. Your order has been released to fulfillment."
@@ -94,7 +94,7 @@ def update_prototype_order(prediction_id, decision):
     return status
 
 
-def prototype_order_status(prediction_id):
+def operations_order_status(prediction_id):
     with connect() as con:
         row = con.execute(
             """
@@ -107,6 +107,19 @@ def prototype_order_status(prediction_id):
         return None
     keys = ["workflow_id", "order_id", "created_at", "status", "manager_decision", "decided_at", "customer_message"]
     return dict(zip(keys, row))
+
+
+# Backward-compatible aliases for databases/pages created by earlier releases.
+def create_prototype_order(scored, order_id):
+    return create_operations_order(scored, order_id)
+
+
+def update_prototype_order(prediction_id, decision):
+    return update_operations_order(prediction_id, decision)
+
+
+def prototype_order_status(prediction_id):
+    return operations_order_status(prediction_id)
 
 
 def score_order(
@@ -179,8 +192,8 @@ def score_order(
         "scoring_mode": scoring_mode,
         **economics,
     }
-    if persist and scoring_mode == "simulation_live":
-        create_prototype_order(result, row.iloc[0]["order_id"])
+    if persist and scoring_mode in {"simulation_live", "manual", "production_manual", "production", "api"}:
+        create_operations_order(result, row.iloc[0]["order_id"])
     return result
 
 
@@ -299,8 +312,8 @@ def record_decision(scored, order_id, decision):
             ],
         )
     try:
-        update_prototype_order(scored["prediction_id"], decision)
+        update_operations_order(scored["prediction_id"], decision)
     except Exception:
-        # Non-prototype orders do not have a prototype lifecycle row.
+        # Batch/legacy records may not have an interactive order-lifecycle row.
         pass
     return decision_id

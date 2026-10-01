@@ -238,6 +238,8 @@ def promote_registered_model(model_id):
         "source": "model_registry_promotion",
         "promoted_at": datetime.now(timezone.utc).isoformat(),
         "training_device": meta.get("training_device"),
+        "training_scope": meta.get("training_scope", "full_dataset"),
+        "source_rows": meta.get("source_rows"),
         "reproducibility": meta.get("reproducibility", {}),
         **support,
     }

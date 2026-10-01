@@ -1,13 +1,13 @@
-"""Prototype retraining orchestration.
+"""Retraining orchestration for the deployed ML application.
 
-The prototype can retrain directly inside the Streamlit application. New data or
-monitoring degradation creates a retraining request. When automatic retraining is
-enabled, the five-model suite runs immediately in the app environment, MLflow tracks
-the experiment, the best qualified model is registered as Candidate, and production
-remains unchanged until a developer explicitly promotes it.
+New versioned data or sustained model degradation can create a retraining request.
+When automatic retraining is enabled, the five-model suite runs in the application
+environment, MLflow tracks the experiment, and the best qualified model is registered
+as Candidate. Production remains unchanged until a developer explicitly promotes it.
 
-The packaged Colab notebook is kept only as an optional heavy-compute utility. It is
-not required for the prototype workflow.
+Full-dataset training is the default. A deterministic sampled mode is retained only as
+an optional faster run for demonstrations, diagnostics, or resource-constrained hosts.
+The packaged Colab notebook remains an optional accelerated-compute alternative.
 """
 
 from __future__ import annotations
@@ -30,8 +30,10 @@ RUNS_DIR = RETRAINING_DIR / "runs"
 
 DEFAULT_RETRAINING_SETTINGS = {
     "automatic_retraining_enabled": True,
-    "training_scope": "fast_prototype",
+    "training_scope": "full_dataset",
     "max_training_rows": 60_000,
+    "prefer_gpu_if_available": True,
+    "include_demo_business_impact": True,
     "deployment_policy": "manual_promotion_required",
     "candidate_registration": "automatic",
 }
@@ -51,14 +53,24 @@ def _write(path, value):
 
 def load_retraining_settings():
     stored = _read(SETTINGS_PATH, {})
-    return {**DEFAULT_RETRAINING_SETTINGS, **(stored or {})}
+    settings = {**DEFAULT_RETRAINING_SETTINGS, **(stored or {})}
+    if settings.get("training_scope") == "fast_prototype":
+        settings["training_scope"] = "quick_sample"
+    settings["prefer_gpu_if_available"] = bool(settings.get("prefer_gpu_if_available", True))
+    settings["include_demo_business_impact"] = bool(settings.get("include_demo_business_impact", True))
+    return settings
 
 
 def save_retraining_settings(settings):
     clean = {**DEFAULT_RETRAINING_SETTINGS, **(settings or {})}
     clean["automatic_retraining_enabled"] = bool(clean.get("automatic_retraining_enabled", True))
-    clean["training_scope"] = "full_dataset" if clean.get("training_scope") == "full_dataset" else "fast_prototype"
+    scope = clean.get("training_scope")
+    # Backward compatibility with earlier builds. The sampled path remains available,
+    # but full-dataset training is the standard operating mode.
+    clean["training_scope"] = "quick_sample" if scope in {"quick_sample", "fast_prototype"} else "full_dataset"
     clean["max_training_rows"] = max(5_000, int(clean.get("max_training_rows", 60_000) or 60_000))
+    clean["prefer_gpu_if_available"] = bool(clean.get("prefer_gpu_if_available", True))
+    clean["include_demo_business_impact"] = bool(clean.get("include_demo_business_impact", True))
     clean["deployment_policy"] = "manual_promotion_required"
     clean["candidate_registration"] = "automatic"
     _write(SETTINGS_PATH, clean)
@@ -89,7 +101,7 @@ def create_retraining_request(model_version, dataset_version, trigger_type, sign
         "signals": signals,
         "source": source,
         "status": "RETRAINING_REQUIRED",
-        "training_backend": "streamlit_local_prototype",
+        "training_backend": "in_app_local",
         "deployment_policy": "candidate_requires_manual_promotion",
     }
     requests.append(request)
@@ -246,8 +258,8 @@ def list_dataset_versions():
     ]
 
 
-def _prototype_sample(snapshot, max_rows):
-    """Create a deterministic time-spanning training sample for the classroom prototype."""
+def _quick_sample(snapshot, max_rows):
+    """Create a deterministic time-spanning sample for optional quick training runs."""
     if len(snapshot) <= max_rows:
         return snapshot.copy()
     ordered = snapshot.sort_values(["created_at", "order_id"]).reset_index(drop=True)
@@ -256,7 +268,7 @@ def _prototype_sample(snapshot, max_rows):
 
 
 def load_training_snapshot(dataset_version=None, settings=None):
-    """Load a versioned snapshot and apply the configured prototype/full scope."""
+    """Load a versioned snapshot and apply the configured full/quick training scope."""
     from src.data.io import read_snapshot
 
     settings = settings or load_retraining_settings()
@@ -272,8 +284,8 @@ def load_training_snapshot(dataset_version=None, settings=None):
         raise FileNotFoundError(f"Dataset artifact does not exist: {path}")
     snapshot = read_snapshot(path)
     original_rows = len(snapshot)
-    if settings.get("training_scope") == "fast_prototype":
-        snapshot = _prototype_sample(snapshot, int(settings.get("max_training_rows", 60_000)))
+    if settings.get("training_scope") in {"quick_sample", "fast_prototype"}:
+        snapshot = _quick_sample(snapshot, int(settings.get("max_training_rows", 60_000)))
     return snapshot, selected, {
         "source_rows": int(original_rows),
         "training_rows": int(len(snapshot)),
@@ -317,14 +329,14 @@ def run_local_retraining(request=None, dataset_version=None, progress=None, sett
         return request
 
     update_retraining_request(request_id, "RUNNING", {
-        "training_backend": "streamlit_local_prototype",
+        "training_backend": "in_app_local",
         "training_scope": settings.get("training_scope"),
     })
     log_event(
         f"retrain_start_{request_id}",
         "MODEL_RETRAINING",
         "STARTED",
-        f"Local prototype retraining started for {request.get('dataset_version')}",
+        f"In-app retraining started for {request.get('dataset_version')}",
         {"request_id": request_id, "trigger_type": request.get("trigger_type")},
     )
 
@@ -347,9 +359,11 @@ def run_local_retraining(request=None, dataset_version=None, progress=None, sett
         config = SuiteConfig(
             dataset_version=selected["dataset_version"],
             output_dir=output_dir,
-            use_gpu=False,
+            use_gpu=bool(settings.get("prefer_gpu_if_available", True)),
             experiment_name=experiment_name,
             mlflow_tracking_uri=MLFLOW_TRACKING_URI,
+            training_scope=scope_meta["training_scope"],
+            source_rows=scope_meta["source_rows"],
         )
         summary = train_model_suite(snapshot, config, progress=progress)
         candidate_id = summary.get("candidate_model_id")
@@ -395,7 +409,7 @@ def run_local_retraining(request=None, dataset_version=None, progress=None, sett
 
 
 def maybe_run_automatic_retraining(request, progress=None):
-    """Run an open retraining request in-app when prototype automation is enabled."""
+    """Run an open retraining request in-app when automatic retraining is enabled."""
     if not request or request.get("status") != "RETRAINING_REQUIRED":
         return request
     settings = load_retraining_settings()
@@ -405,7 +419,7 @@ def maybe_run_automatic_retraining(request, progress=None):
 
 
 def ordinary_colab_url():
-    """Optional heavy-compute notebook link; not required by the prototype."""
+    """Optional accelerated-compute notebook link."""
     explicit = os.getenv("COLAB_NOTEBOOK_URL")
     if explicit:
         return explicit

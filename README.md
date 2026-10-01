@@ -1,102 +1,99 @@
 # Profit-Aware E-Commerce Order Cancellation Risk
 
-A production-style machine-learning prototype that helps an e-commerce team decide whether a newly placed order should be released to fulfillment or briefly held for verification.
+A deployable machine-learning application that helps an e-commerce operations team decide whether a newly placed order should be released to fulfillment or held briefly for verification.
 
-The application predicts cancellation risk, converts that risk into an expected financial impact, and gives an Operations Manager a simple decision workflow. Developers get separate tools for DataOps, model experimentation, MLflow tracking, model comparison, retraining, deployment, and monitoring.
+The system combines cancellation-risk prediction with a simple economic decision rule, and separates day-to-day Operations work from DataOps, ModelOps, deployment, and monitoring.
 
 ## What problem does this solve?
 
-Orders canceled after warehouse work begins can waste picking, packing, inventory reservation, payment-processing, customer-service, and logistics effort. Reviewing every order would also create unnecessary delay and cost.
+Late order cancellations can waste warehouse labor, inventory reservation, payment-processing effort, customer-service time, and logistics work. Reviewing every order would also create unnecessary delay and cost.
 
-The application therefore asks one practical question:
+The application therefore asks a practical question:
 
 > **Is verifying this order expected to save more money than the verification costs?**
 
-The ML model estimates cancellation probability. The business layer combines that probability with configurable assumptions about late-cancellation loss and verification cost.
+The ML model estimates cancellation probability. The business layer combines that probability with configurable assumptions about cancellation loss, verification cost, and how much loss verification can prevent.
 
-## Who is this for?
+## Who uses the application?
 
-You do not need to be a machine-learning specialist to understand the app.
+- **Operations Manager:** scores or reviews incoming orders and decides whether to release or verify them.
+- **Developer / Data Scientist:** manages datasets, experiments, retraining, candidates, deployment, and monitoring.
+- **Finance / Business stakeholder:** can inspect the cost assumptions, expected savings, and historical business backtests without reading model code.
 
-- **Operations Manager:** reviews incoming orders and chooses whether to release or verify them.
-- **Developer / Data Scientist:** manages datasets, model experiments, retraining, candidates, deployment, and monitoring.
-- **Finance / Business stakeholder:** can understand the economic assumptions and business backtests without reading model code.
+No password is required in the course deployment. The landing page asks the user to choose the Operations Manager or Developer workspace. The role determines which pages are registered and visible.
 
 ## What happens when the app starts?
 
-The application **does not retrain at startup**.
+The application does **not** retrain on startup.
 
-A pretrained LightGBM model is packaged as the initial Production model, so scoring is available immediately:
+A pretrained LightGBM model is packaged as the initial Production model, so inference is available immediately:
 
 ```text
 Open app
    ↓
-Choose Operations Manager or Developer
+Choose a workspace
    ↓
 Load packaged Production model
    ↓
 Ready to score orders
 ```
 
-Retraining happens only when the Developer workflow starts it automatically or manually.
+Retraining happens only from a DataOps handoff, a monitoring trigger, or an explicit Developer action.
 
 ## Starter model registry
 
-The repository ships with trained versions of five model families:
+Five trained model families are included from the first deployment:
 
-| Model | Initial role | Prototype compute |
+| Model | Initial role | Typical compute |
 |---|---|---|
 | Logistic Regression | Ready / baseline | CPU |
 | Random Forest | Ready | CPU |
 | Extra Trees | Ready | CPU |
-| LightGBM | **Production** | CPU |
-| XGBoost | Ready | CPU |
+| LightGBM | **Production** | CPU or GPU when available |
+| XGBoost | Ready | CPU or GPU when available |
 
-The current LightGBM model remains Production until a developer explicitly promotes a Candidate.
+The packaged LightGBM model remains Production until a developer explicitly promotes a Candidate.
 
-## Application roles
+## Operations workflow
 
-### Operations Manager
-
-The Operations workspace contains only:
+The Operations workspace contains:
 
 - Operations Dashboard
 - Score Order
 - Decision History
 
-The live prototype behaves like an incoming customer-order workflow:
+There are three scoring paths:
+
+### Manual Order
+
+A single incoming order can be entered in the UI. It is scored by the current Production model, placed in Operations review, and the manager chooses:
 
 ```text
-Customer places order
-        ↓
-Cancellation-risk screening
-        ↓
+Order received
+   ↓
+Risk score + economic recommendation
+   ↓
 Awaiting Operations Review
-        ↓
-Operations Manager chooses
    ├── Release to Fulfillment
    └── Keep for Verification
-        ↓
-Business Impact updates
 ```
 
-### Developer
+Manual scores are production-like traffic and contribute to runtime monitoring.
 
-The Developer workspace contains:
+### Batch CSV
 
-- Developer Dashboard
-- DataOps
-- Model Registry & Deployment
-- Model Monitoring
-- Experiments / MLflow
-- System Status
+A CSV containing one row per new order can be scored in one run. Batch predictions are persisted for monitoring and Business Impact reporting. A scored CSV can be downloaded afterward.
+
+### Incoming Order Demo
+
+A packaged simulation is available for presentations and walkthroughs. It demonstrates the same customer-to-Operations review flow using historical orders selected across low, medium, and high model-risk bands.
+
+Demo traffic is always excluded from technical drift monitoring. Developers can choose whether demo simulation should be included in Business Impact for presentation purposes.
 
 ## End-to-end ML workflow
 
-The prototype can run the complete retraining workflow directly inside Streamlit:
-
 ```text
-New order data
+New item-level data
       ↓
 DataOps
   ingest
@@ -109,7 +106,7 @@ Retraining request
       ↓
 Automatic retraining enabled?
       ↓ yes
-Run five-model suite directly in app
+Five-model training workflow
       ↓
 Logistic Regression
 Random Forest
@@ -121,7 +118,7 @@ MLflow experiment tracking
       ↓
 Qualification gates
       ↓
-Best qualified model becomes Candidate
+Best qualified model → Candidate
       ↓
 Developer review
       ↓
@@ -131,12 +128,12 @@ Operations scoring
       ↓
 Monitoring
       ↓
-Sustained degradation?
+Sustained degradation or confirmed performance decline?
       ↓ yes
 Create retraining request and repeat
 ```
 
-Training may select a Candidate automatically, but **deployment is never automatic**.
+Candidate selection can be automated. Production deployment is not.
 
 ## DataOps
 
@@ -153,11 +150,11 @@ It performs:
 7. Immutable dataset version creation
 8. Retraining-request creation for the new dataset version
 
-The Pakistan baseline is already packaged as a validated order-level seed dataset. Developers normally upload only new batches.
+The Pakistan baseline is already packaged as a validated order-level seed dataset. New uploads create additional immutable dataset versions.
 
-When automatic retraining is enabled, DataOps hands the new dataset version directly to the five-model training workflow. DataOps itself never changes the Production model.
+If automatic retraining is enabled, DataOps passes the new version into the five-model training workflow. DataOps itself never changes the Production model.
 
-## Direct prototype retraining
+## Retraining settings
 
 Open:
 
@@ -165,28 +162,24 @@ Open:
 Developer → Model Registry & Deployment
 ```
 
-The **Prototype retraining settings** section provides two controls:
+The application supports two training workloads.
+
+### Standard full dataset
+
+This is the default and normal retraining path. All available orders in the selected immutable dataset version are used for the time-based train/validation/test workflow.
+
+### Quick sampled run
+
+This optional mode selects a deterministic, time-spanning sample. It exists for demonstrations, diagnostics, or resource-constrained compute environments. It is not the default operating assumption.
+
+The Developer can also choose whether LightGBM and XGBoost should prefer GPU execution when a compatible GPU is available. Random Forest and Extra Trees remain CPU-based in scikit-learn.
 
 ### Automatic retraining
 
-When enabled, retraining starts automatically when either:
+When enabled, retraining starts when either:
 
 - DataOps creates a new dataset version, or
-- Monitoring detects sustained degradation that satisfies the retraining policy.
-
-### Training workload
-
-**Fast prototype** is the recommended hosted-Streamlit setting. It selects a deterministic time-spanning sample from the active dataset and trains all five models on that sample.
-
-The default limit is:
-
-```text
-60,000 orders
-```
-
-This keeps the workflow practical on CPU while preserving orders across the dataset timeline.
-
-**Full active dataset** trains the same five models on the complete selected dataset version and may take substantially longer.
+- monitoring detects a sustained degradation signal that satisfies the retraining policy.
 
 Developers can also click:
 
@@ -194,17 +187,17 @@ Developers can also click:
 Run Five-Model Retraining Now
 ```
 
-for an immediate retraining run without waiting for a monitoring trigger.
+to retrain immediately on a selected dataset version.
 
 ## MLflow experiment tracking
 
-Every five-model suite creates a named MLflow experiment, for example:
+Each five-model suite creates a named MLflow experiment, for example:
 
 ```text
 cancellation-risk__pakistan_seed_v1__20260930
 ```
 
-Runs receive readable names:
+Runs receive readable, timestamped names:
 
 ```text
 logistic_regression__20260930T180000Z
@@ -221,7 +214,7 @@ Each run records information such as:
 - training timestamp
 - random seed
 - train / validation / test sizes
-- model hyperparameters
+- hyperparameters
 - training device
 - ROC-AUC
 - PR-AUC
@@ -233,20 +226,18 @@ Each run records information such as:
 - Python and library versions
 - fitted model artifact
 
-## Candidate selection
+## Candidate selection and deployment
 
-A model does not become Candidate simply because it has the highest ROC-AUC.
+A model does not become Candidate solely because it has the highest ROC-AUC.
 
-The workflow first applies qualification gates for:
+The workflow first applies qualification gates covering:
 
 - discrimination
 - probability calibration
 - recall at high precision
 - positive estimated business value
 
-Qualified models are then compared using a weighted score that combines technical performance and business value.
-
-The highest-ranked qualified model becomes **Candidate** automatically.
+Qualified models are then compared using a weighted technical-and-business score. The best qualified model is registered as **Candidate**.
 
 Production remains unchanged until a developer checks the approval box and clicks:
 
@@ -254,29 +245,29 @@ Production remains unchanged until a developer checks the approval box and click
 Promote Candidate to Production
 ```
 
-## Monitoring and retraining
+This keeps automated experimentation separate from production deployment.
 
-Monitoring separates several concepts.
+## Monitoring and retraining
 
 ### Runtime health
 
-Tracks production-like scoring traffic, including:
+Production-like manual, batch, and future API traffic can contribute to:
 
 - prediction volume
 - average predicted risk
-- model latency
+- inference latency
 - pipeline reliability
 - verification rate
 
 ### Drift
 
-Compares production-like traffic with the Production model's reference population.
+Prediction and feature distributions are compared with the Production model's reference population. Demo simulation and retrospective historical evaluation are excluded so their sampling design cannot create false drift alerts.
 
-Live simulation and historical-evaluation traffic are excluded from drift monitoring so demo sampling does not generate false drift alerts.
+A minimum runtime sample is required before the application labels the system as stable, watch, or drift.
 
 ### Actual performance
 
-When final order outcomes become available, a developer can upload:
+When final outcomes become available, a developer can upload:
 
 ```text
 order_id,final_outcome
@@ -284,50 +275,48 @@ order_id,final_outcome
 100002,Canceled
 ```
 
-The application then measures observed production performance.
+The application can then calculate observed runtime performance such as ROC-AUC, Brier score, and high-precision recall.
 
 ### Retraining policy
 
-The trigger is intentionally conservative:
+Retraining is intentionally conservative:
 
-- one small or noisy batch does not start retraining
-- sustained severe drift can trigger retraining
+- one small or noisy batch does not trigger retraining
+- sustained severe drift can create a retraining request
 - confirmed ROC-AUC degradation can trigger retraining
 - confirmed Brier-score deterioration can trigger retraining
 - non-positive observed business value can trigger retraining
 
-When automatic retraining is enabled, an eligible request runs directly in the app. The five runs are tracked in MLflow and the best qualified model becomes Candidate.
+When automatic retraining is enabled, the request runs through the five-model workflow and may create a Candidate. Production still requires human approval.
 
-Deployment still requires human approval.
+## Business Impact
 
-## Optional Colab notebook
+Business Impact can report expected value from manual and batch Operations scoring. For class demonstrations, Developers may also enable inclusion of the live demo simulation.
 
-The repository still includes:
-
-```text
-notebooks/end_to_end_ml_workflow.ipynb
-```
-
-It is an optional heavy-compute utility, not a requirement for the prototype. The primary workflow now runs directly from the Developer UI.
-
-If you choose to use the notebook later, it runs the same five-model experiment and can export a Candidate package for import into the app.
-
-## Business decision logic
-
-The Operations UI uses plain language.
-
-The configurable assumptions are:
+The configurable assumptions are presented in plain language:
 
 - **Loss if a canceled order reaches fulfillment**
 - **Loss prevented by verification**
 - **Cost to verify one order**
 - **Extra cost if a good order is verified**
 
-The user-facing application displays money in USD using a current PKR-to-USD conversion when available. Model features stay in PKR internally so the trained model contract is not changed.
+The user-facing UI displays money in USD using the latest available PKR-to-USD rate. Model features remain in PKR internally so the trained model contract is unchanged.
+
+Historical business backtesting is kept separate from live Operations Business Impact.
+
+## Optional Google Colab training
+
+The repository includes:
+
+```text
+notebooks/end_to_end_ml_workflow.ipynb
+```
+
+The application does not require Colab to function. The notebook is an optional accelerated-compute path when separate compute or a T4 GPU is useful. It runs the same five-model experiment and can export a Candidate package for import into the Model Registry.
 
 ## Reproducibility
 
-Formal model runs record:
+Model runs record enough context to trace a result back to its data, code, and configuration:
 
 - immutable dataset version
 - time-based split
@@ -336,11 +325,9 @@ Formal model runs record:
 - Git commit SHA
 - environment and library versions
 - hyperparameters
-- metrics
-- business assumptions
+- technical metrics
+- business metrics
 - serialized model artifact
-
-This allows a Production model to be traced back to the code, data, configuration, and experiment that created it.
 
 ## Local setup
 
@@ -366,19 +353,11 @@ Then open:
 http://localhost:8501
 ```
 
-No password is required in this classroom prototype. Choose the Operations Manager or Developer workspace from the landing page.
-
 ## Docker
 
 ```bash
 docker build -t cancellation-risk-app .
 docker run --rm -p 8501:8501 cancellation-risk-app
-```
-
-Then open:
-
-```text
-http://localhost:8501
 ```
 
 ## GitHub Actions
@@ -389,7 +368,7 @@ The repository includes:
 .github/workflows/ci.yml
 ```
 
-CI installs the project, runs automated tests, verifies packaged inference, and checks that the Docker image builds.
+CI installs dependencies, runs automated tests, verifies packaged inference, and checks that the Docker image builds.
 
 If a file-copy operation skipped hidden folders, restore the workflow with:
 
@@ -410,9 +389,9 @@ src/data/                      Ingestion, validation, aggregation, versioning
 src/features/                  Feature construction and inference contract
 src/models/                    Training, registry, inference, five-model suite
 src/monitoring/                Runtime, drift, business and performance metrics
-src/retraining.py              Direct prototype retraining orchestration
+src/retraining.py              Automatic/manual retraining orchestration
 notebooks/end_to_end_ml_workflow.ipynb
-                               Optional heavy-compute notebook
+                               Optional accelerated-compute workflow
 artifacts/model_registry/      Packaged trained model suite
 artifacts/retraining/          Retraining settings, requests, and generated runs
 artifacts/production_model.pkl Current deployed artifact
@@ -422,22 +401,22 @@ tests/                         Automated regression tests
 Dockerfile                     Container deployment
 ```
 
-## Important prototype limitations
+## Deployment notes and limitations
 
-This is a school ML-system prototype, not a production commerce platform.
+The core scoring, DataOps, ModelOps, monitoring, retraining, and deployment-control workflows are functional. A few deployment choices are intentionally simplified for the course environment:
 
-- Passwordless role selection demonstrates role-specific UX, not enterprise authentication.
-- Direct retraining runs inside the Streamlit process. Hosted environments may impose CPU, memory, or execution-time limits.
-- Fast prototype mode intentionally trades training-set size for responsiveness.
-- Business-cost assumptions are configurable because the public dataset does not include a retailer's real warehouse or verification costs.
-- Runtime state on some hosted Streamlit environments may be ephemeral unless external persistence is added.
-- Automatic retraining does not mean automatic deployment. Candidate promotion intentionally remains a human approval step.
+- role selection is passwordless and demonstrates role-specific routing, not enterprise authentication
+- in-app retraining uses the compute available to the Streamlit host and may be slow on CPU-only services
+- persistent runtime history depends on durable storage; some hosted Streamlit environments use ephemeral local filesystems
+- business-cost inputs are configurable because the public dataset does not contain a retailer's internal warehouse or verification costs
+- automatic retraining does not imply automatic deployment; Candidate promotion remains a human-controlled action
+- the Incoming Order Demo is optional presentation traffic and is kept separate from technical production monitoring
 
 ## Dataset
 
-The project uses **Pakistan's Largest E-Commerce Dataset** by Zeeshan-ul-hassan Usmani and collaborator. The raw public data is item-level; the ML prediction unit is one order.
+The project uses **Pakistan's Largest E-Commerce Dataset** by Zeeshan-ul-hassan Usmani and collaborator. The public source is item-level; the prediction unit in this system is one order.
 
-The packaged seed contains the validated, aggregated complete/canceled order population used by the initial model.
+The packaged seed contains the validated and aggregated complete/canceled order population used by the initial model suite.
 
 ## Quick glossary
 
@@ -445,7 +424,7 @@ The packaged seed contains the validated, aggregated complete/canceled order pop
 - **Experiment:** one model-training run with recorded settings and results.
 - **MLflow:** tracks experiment parameters, metrics, and model artifacts.
 - **Candidate:** a model proposed as a replacement for Production.
-- **Production:** the model currently used for scoring decisions.
-- **Drift:** live data or predictions are changing relative to the model's reference population.
-- **Retraining:** create new model versions using the selected versioned dataset.
+- **Production:** the model currently used for operational scoring.
+- **Drift:** live data or predictions have changed relative to the model's reference population.
+- **Retraining:** create new model versions using a selected immutable dataset version.
 - **Deployment / Promotion:** make an approved Candidate the Production model.

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-def test_prototype_order_lifecycle_is_present_in_schema_and_scoring_flow():
+def test_interactive_order_lifecycle_is_present_in_schema_and_scoring_flow():
     db = Path("src/database/duckdb_manager.py").read_text(encoding="utf-8")
     predict = Path("src/models/predict.py").read_text(encoding="utf-8")
     page = Path("views/2_Score_Order.py").read_text(encoding="utf-8")
@@ -10,7 +10,7 @@ def test_prototype_order_lifecycle_is_present_in_schema_and_scoring_flow():
     assert "AWAITING_OPERATIONS_REVIEW" in predict
     assert "RELEASED_TO_FULFILLMENT" in predict
     assert "VERIFICATION_REQUIRED" in predict
-    assert 'scoring_mode == "simulation_live"' in predict
+    assert '"simulation_live", "manual"' in predict
     assert "Customer order status" in page
     assert "Operations review" in page
     assert "Place Next Simulated Customer Order" in page

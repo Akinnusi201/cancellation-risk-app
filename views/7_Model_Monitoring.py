@@ -419,26 +419,34 @@ with drift_tab:
         else:
             fd["Feature"] = fd["Feature"].map(lambda x: FEATURE_LABELS.get(x, x))
             st.dataframe(fd, use_container_width=True, hide_index=True)
-            st.caption("Numeric features use PSI. Categorical features use total-variation distance. These thresholds are monitoring heuristics for this prototype, not universal statistical cutoffs.")
+            st.caption("Numeric features use PSI. Categorical features use total-variation distance. These thresholds are application monitoring heuristics, not universal statistical cutoffs.")
 
 with business_tab:
     st.subheader("Operations business impact")
-    st.caption(
-        "Prototype Business Impact includes live simulated customer orders plus manual and batch Operations scoring. "
-        "Historical evaluation and the model holdout remain excluded. Live simulation still does not contribute to technical drift monitoring."
-    )
+    business_settings = retraining.load_retraining_settings()
+    include_demo_business = bool(business_settings.get("include_demo_business_impact", True))
+    if include_demo_business:
+        st.caption(
+            "Business Impact includes manual and batch Operations scoring plus the optional live demo simulation. "
+            "Historical evaluation and the model holdout remain excluded. Demo traffic never contributes to technical drift monitoring."
+        )
+    else:
+        st.caption(
+            "Business Impact reflects only manual and batch production-like Operations scoring. "
+            "Demo simulation, historical evaluation, and the model holdout are excluded."
+        )
 
-    operations_orders, live_impact = operations_business_summary(meta.get("model_version"))
+    operations_orders, live_impact = operations_business_summary(meta.get("model_version"), include_demo=include_demo_business)
     orders_scored = int(live_impact.get("orders_scored", 0))
 
     if orders_scored == 0:
         st.info(
-            "No Operations orders have entered the prototype workflow yet. Use Live Operations Simulation, Manual Order, or Batch Scoring in the Operations workspace to populate this tab."
+            "No Operations orders have entered the application workflow yet. Use Manual Order or Batch CSV in the Operations workspace to populate this tab. If demo inclusion is enabled, Incoming Order Demo can contribute too."
         )
         st.markdown("#### What will appear here")
         st.caption(
             "Once orders enter the workflow, this tab will show pending reviews, manager releases, verification decisions, expected cancellations reached, expected cost prevented, "
-            "verification cost, and expected net savings. Simulated customer orders count for this prototype, but only manager-approved verification actions claim savings."
+            "verification cost, and expected net savings. Demo simulation can be included in business reporting for presentation purposes, but only manager-approved verification actions claim savings."
         )
     else:
         if live_impact.get("scoring_records", orders_scored) > orders_scored:
@@ -482,10 +490,15 @@ with business_tab:
             format_usd(live_impact["net_savings_per_1000_orders"], fx_rate),
         )
 
-        st.caption(
-            "For the prototype, live simulated customer orders count here. Pending and released orders do not claim verification savings. "
-            "Expected business value is counted only when the Operations Manager chooses to keep an order for verification; batch orders use the automated recommendation."
-        )
+        if include_demo_business:
+            st.caption(
+                "Demo simulation is currently included in Business Impact. Pending and released interactive orders do not claim verification savings. "
+                "Expected business value is counted only when the Operations Manager chooses verification; batch orders use the automated recommendation."
+            )
+        else:
+            st.caption(
+                "Only production-like manual and batch scoring is included. Interactive orders claim expected value only after a manager chooses verification; batch orders use the automated recommendation."
+            )
 
         mode_counts = live_impact.get("mode_counts", {})
         if mode_counts:
@@ -688,7 +701,7 @@ with retraining_tab:
         elif request_status == "FAILED":
             st.error("The previous retraining attempt failed. Use Model Registry & Deployment to inspect the request and run retraining again.")
         elif settings.get("automatic_retraining_enabled", True) and request_status == "RETRAINING_REQUIRED":
-            st.info("Automatic prototype retraining is enabled. The five-model suite will run directly in this app and the best qualified model will become Candidate only.")
+            st.info("Automatic retraining is enabled. The five-model suite will run directly in this app and the best qualified model will become Candidate only.")
             stage_slot = st.empty()
             bar_slot = st.empty()
             detail_slot = st.empty()

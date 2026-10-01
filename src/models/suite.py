@@ -1,7 +1,7 @@
-"""Reproducible multi-model training used by the Colab workflow.
+"""Reproducible five-model training used by the application and optional Colab workflow.
 
-The Streamlit app does not call this module during normal startup. It is designed for
-the Streamlit prototype, Google Colab, or another explicit developer training job.
+The application never trains during normal startup. Training runs only when an explicit
+manual or automatic retraining job is created from versioned data.
 """
 
 from __future__ import annotations
@@ -73,6 +73,8 @@ class SuiteConfig:
     mlflow_tracking_uri: str | None = None
     business_policy: dict | None = None
     gates: dict | None = None
+    training_scope: str = "full_dataset"
+    source_rows: int | None = None
 
 
 def utc_stamp():
@@ -320,6 +322,8 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
                 "run_id": run.info.run_id if run else None,
                 "trained_at": datetime.now(timezone.utc).isoformat(),
                 "training_device": device,
+                "training_scope": config.training_scope,
+                "source_rows": int(config.source_rows) if config.source_rows is not None else int(len(snapshot)),
                 "random_seed": config.random_seed,
                 "threshold": threshold,
                 "val_metrics": vm,
@@ -338,6 +342,8 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
                     "dataset_version": config.dataset_version,
                     "random_seed": config.random_seed,
                     "training_device": device,
+                    "training_scope": config.training_scope,
+                    "source_rows": int(config.source_rows) if config.source_rows is not None else int(len(snapshot)),
                     "git_commit_sha": env.get("git_commit_sha"),
                     **{f"model__{k}": v for k, v in estimator.get_params().items() if isinstance(v, (str, int, float, bool, type(None)))},
                 })
@@ -413,6 +419,8 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
         "created_at": datetime.now(timezone.utc).isoformat(),
         "random_seed": config.random_seed,
         "training_mode": "gpu_preferred_with_cpu_fallback" if config.use_gpu else "cpu",
+        "training_scope": config.training_scope,
+        "source_rows": int(config.source_rows) if config.source_rows is not None else int(len(snapshot)),
         "gates": gates,
         "candidate_model_id": candidate.get("model_id") if candidate else None,
         "candidate_package": str(candidate_package) if candidate_package else None,

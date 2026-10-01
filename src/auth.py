@@ -14,7 +14,7 @@ def _sign_in_as(role: str) -> None:
 
 
 def login_screen() -> None:
-    """Passwordless role-selection landing page for the class demonstration."""
+    """Passwordless role-selection landing page for this deployment."""
     st.title("Profit-Aware Order Cancellation Risk")
     st.caption("Group 10 • Select the workspace you want to enter")
 
@@ -49,8 +49,8 @@ def login_screen() -> None:
             _sign_in_as("developer")
 
     st.info(
-        "This course prototype uses passwordless role selection. Role-based routing still "
-        "keeps Operations and Developer pages separate inside the application."
+        "This deployment uses passwordless role selection for the course environment. "
+        "Operations and Developer pages are still registered separately so each workspace only exposes the tools intended for that role."
     )
 
 
@@ -68,6 +68,9 @@ def logout_button() -> None:
             "current_score",
             "decision_made",
             "sim_score_key",
+            "manual_order_row",
+            "manual_order_score",
+            "manual_decision_made",
         ]:
             st.session_state.pop(key, None)
         st.rerun()

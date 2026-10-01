@@ -65,17 +65,21 @@ else:
 
 st.subheader("Training & Automation")
 settings = retraining.load_retraining_settings()
-a1, a2, a3, a4 = st.columns(4)
+a1, a2, a3, a4, a5 = st.columns(5)
 a1.metric("Starter Model Suite", f"{len(registry_models)} models" if registry_models else "Missing")
-a2.metric("Direct Retraining", "Enabled" if settings.get("automatic_retraining_enabled", True) else "Manual")
-a3.metric("Training Scope", "Fast prototype" if settings.get("training_scope") == "fast_prototype" else "Full dataset")
-a4.metric("Deployment", "Manual approval")
+a2.metric("Automatic Retraining", "Enabled" if settings.get("automatic_retraining_enabled", True) else "Manual")
+a3.metric("Training Scope", "Quick sampled run" if settings.get("training_scope") in {"quick_sample", "fast_prototype"} else "Full dataset")
+a4.metric("GPU Preference", "On" if settings.get("prefer_gpu_if_available", True) else "Off")
+a5.metric("Deployment", "Manual approval")
 st.caption(
-    "Prototype retraining runs directly in the Streamlit application. New data or sustained degradation can trigger the five-model workflow automatically when enabled. "
-    "The selected model becomes Candidate only; a developer must still promote it to Production."
+    "Retraining runs directly in the application. New data or sustained degradation can trigger the five-model workflow automatically when enabled. "
+    "Full-dataset training is the standard path; GPU preference applies only where supported. The selected model becomes Candidate only and still requires developer promotion to Production."
 )
-if settings.get("training_scope") == "fast_prototype":
-    st.caption(f"Fast prototype limit: up to {int(settings.get('max_training_rows', 60000)):,} time-spanning orders per retraining run.")
+st.caption(
+    "Business Impact demo inclusion: " + ("enabled" if settings.get("include_demo_business_impact", True) else "disabled") + ". Demo traffic is always excluded from technical drift monitoring."
+)
+if settings.get("training_scope") in {"quick_sample", "fast_prototype"}:
+    st.caption(f"Quick-run limit: up to {int(settings.get('max_training_rows', 60000)):,} deterministic time-spanning orders per retraining run.")
 
 requests = retraining.list_retraining_requests()
 if requests:

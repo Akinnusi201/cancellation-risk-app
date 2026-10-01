@@ -133,8 +133,8 @@ def load_historical_demo_orders():
     # queue is unavailable until the full upgrade is copied.
     return load_demo_orders()
 
-def get_prototype_status(prediction_id):
-    loader = getattr(predict_module, "prototype_order_status", None)
+def get_order_status(prediction_id):
+    loader = getattr(predict_module, "operations_order_status", None) or getattr(predict_module, "prototype_order_status", None)
     if callable(loader):
         try:
             return loader(prediction_id)
@@ -144,8 +144,8 @@ def get_prototype_status(prediction_id):
 
 
 def show_customer_order_status(sc, decision_made=False):
-    """Render the customer-facing state for the live prototype order flow."""
-    state = get_prototype_status(sc.get("prediction_id")) or {}
+    """Render the customer-facing state for an interactive incoming order."""
+    state = get_order_status(sc.get("prediction_id")) or {}
     status = state.get("status")
     message = state.get("customer_message")
 
@@ -173,7 +173,8 @@ if not meta or reference.empty:
     st.stop()
 
 policy = business_policy_controls("score")
-tabs = st.tabs(["Incoming Order Simulation", "Manual Order", "Batch CSV"])
+tabs = st.tabs(["Incoming Order Demo", "Manual Order", "Batch CSV"])
+st.caption("**Manual Order** and **Batch CSV** are production-like scoring paths. **Incoming Order Demo** is optional and exists to demonstrate the customer-to-Operations review flow.")
 
 
 def _score_order_compat(row, reference, policy, scoring_mode):
@@ -233,8 +234,8 @@ with tabs[0]:
     if mode == "Live Operations Simulation":
         demo = load_demo_orders()
         st.info(
-            "Prototype customer flow: a simulated customer places an order, the model screens it, and the customer temporarily sees **Awaiting Operations Review**. "
-            "The Operations Manager then releases the order or keeps it for verification. Live simulation counts toward prototype Business Impact, but remains excluded from drift monitoring."
+            "Demo customer flow: a simulated customer places an order, the model screens it, and the customer temporarily sees **Awaiting Operations Review**. "
+            "The Operations Manager then releases the order or keeps it for verification. Demo traffic may appear in Business Impact for presentation purposes but remains excluded from drift monitoring."
         )
         index_key = "live_queue_index"
         scoring_mode = "simulation_live"
@@ -306,7 +307,7 @@ with tabs[0]:
             if mode == "Historical Evaluation":
                 st.info(f"Historical outcome: **{sc.get('actual_outcome', 'Unavailable')}**")
             else:
-                status = get_prototype_status(sc.get("prediction_id")) or {}
+                status = get_order_status(sc.get("prediction_id")) or {}
                 if status.get("status") == "RELEASED_TO_FULFILLMENT":
                     st.success("Operations decision recorded: the customer order is released to fulfillment.")
                 else:
@@ -349,8 +350,32 @@ with tabs[1]:
             "category_name_1": category,
             "customer_cancel_rate": prior,
         }]))
-        sc = _score_order_compat(manual, reference, policy, 'manual')
+        st.session_state["manual_order_row"] = manual
+        st.session_state["manual_order_score"] = _score_order_compat(manual, reference, policy, "manual")
+        st.session_state["manual_decision_made"] = False
+
+    manual = st.session_state.get("manual_order_row")
+    sc = st.session_state.get("manual_order_score")
+    if isinstance(sc, dict) and isinstance(manual, pd.DataFrame) and not manual.empty:
+        show_customer_order_status(sc, st.session_state.get("manual_decision_made", False))
         show_score(sc, manual)
+        st.markdown("#### Operations decision")
+        st.caption("The order stays in review until you release it or keep it for verification.")
+        m1, m2 = st.columns(2)
+        if m1.button("✅ Release Manual Order", use_container_width=True, disabled=st.session_state.get("manual_decision_made", False)):
+            record_decision(sc, manual.iloc[0]["order_id"], "Approve for Fulfillment")
+            st.session_state["manual_decision_made"] = True
+            st.rerun()
+        if m2.button("🟠 Keep Manual Order for Verification", use_container_width=True, disabled=st.session_state.get("manual_decision_made", False)):
+            record_decision(sc, manual.iloc[0]["order_id"], "Hold for Verification")
+            st.session_state["manual_decision_made"] = True
+            st.rerun()
+        if st.session_state.get("manual_decision_made"):
+            state = get_order_status(sc.get("prediction_id")) or {}
+            if state.get("status") == "RELEASED_TO_FULFILLMENT":
+                st.success("Decision recorded. The order has been released to fulfillment.")
+            elif state.get("status") == "VERIFICATION_REQUIRED":
+                st.warning("Decision recorded. The order remains on hold for verification.")
 
 with tabs[2]:
     st.subheader("Batch scoring")

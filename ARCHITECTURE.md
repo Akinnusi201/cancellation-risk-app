@@ -1,36 +1,35 @@
 # Architecture
 
-## Prototype system flow
+## System flow
 
 ```text
-Customer / new order data
+Incoming order / new transaction data
         │
-        ├─────────────── Operations path ───────────────┐
-        │                                               │
-        ▼                                               ▼
-     DataOps                                      Production model
- ingest / validate                               cancellation risk
- quarantine / aggregate                               │
- version data                                          ▼
-        │                                      profit-aware decision
-        ▼                                               │
- versioned dataset                                      ▼
+        ├──────────── Operations scoring ──────────────┐
+        │                                              │
+        ▼                                              ▼
+      DataOps                                   Production model
+ ingest / validate                              cancellation risk
+ quarantine / aggregate                              │
+ version / lineage                                    ▼
+        │                                     economic decision
+        ▼                                              │
+ immutable dataset version                            ▼
         │                                      Operations Manager
         ▼                                      release / verify order
  retraining request
         │
         ▼
- Prototype retraining settings
- automatic enabled? ── no ──► queued request
+ automatic retraining enabled? ── no ──► queued request
         │ yes
         ▼
- direct five-model training in Streamlit
+ five-model training workflow
         │
-        ├── Logistic Regression
-        ├── Random Forest
-        ├── Extra Trees
-        ├── LightGBM
-        └── XGBoost
+        ├── Logistic Regression (CPU)
+        ├── Random Forest (CPU)
+        ├── Extra Trees (CPU)
+        ├── LightGBM (GPU preferred, CPU fallback)
+        └── XGBoost (GPU preferred, CPU fallback)
         │
         ▼
  MLflow experiment tracking
@@ -42,38 +41,47 @@ Customer / new order data
  best qualified model = Candidate
         │
         ▼
- Developer approval
+ Developer review and approval
         │
         ▼
  Promote Candidate to Production
         │
         ▼
- Monitoring
+ Runtime monitoring
         │
-        └── sustained degradation creates a new retraining request
+        └── sustained drift / confirmed degradation
+             creates a new retraining request
 ```
+
+## Operations paths
+
+The application supports production-like manual and batch scoring. An optional Incoming Order Demo uses packaged historical examples to demonstrate the same review lifecycle.
+
+Manual single-order scoring creates an interactive review state. Batch scoring records predictions for monitoring and applies the automated economic recommendation to each row.
+
+Demo simulation can be included in Business Impact for presentation purposes, but it is always excluded from technical drift monitoring.
 
 ## DataOps boundary
 
-DataOps owns ingestion, validation, quarantine, aggregation, lineage, customer-history recomputation, and immutable dataset versioning.
+DataOps owns ingestion, validation, quarantine, deterministic item-to-order aggregation, lineage, leakage-safe customer-history recomputation, and immutable dataset versioning.
 
-Creating a new dataset version can create a retraining request. If automatic retraining is enabled, the request is handed to the direct prototype trainer. DataOps never promotes a model or changes Production itself.
+Creating a dataset version can create a retraining request. If automatic retraining is enabled, the request is passed to the five-model training workflow. DataOps never promotes a model or changes Production directly.
 
 ## ModelOps boundary
 
-ModelOps trains and compares five model families using the same temporal split and feature contract. Each run is tracked in MLflow with reproducibility metadata.
+ModelOps trains and compares five model families using the same temporal split and feature contract. Each run is tracked in MLflow with dataset version, random seed, hyperparameters, device, metrics, business value, Git SHA, and environment information.
 
-Candidate selection is automatic after qualification gates, but deployment is manual.
+Candidate selection is automatic after qualification gates. Deployment remains manual.
 
-## Prototype retraining modes
+## Training workloads
 
-### Fast prototype
+### Standard full dataset
 
-A deterministic time-spanning sample, default 60,000 orders, is selected from the chosen dataset version. This is intended for hosted Streamlit CPU environments and live demonstrations.
+This is the default retraining mode. All available orders in the selected immutable dataset version are used.
 
-### Full active dataset
+### Quick sampled run
 
-The same five-model workflow runs on the complete selected dataset version. This is more computationally expensive and may take several minutes.
+This is an optional deterministic, time-spanning sample used for demonstrations, diagnostics, or resource-constrained hosts. It is not the default operating assumption.
 
 ## Monitoring trigger
 
@@ -85,7 +93,7 @@ Retraining can be requested by:
 - confirmed Brier-score deterioration
 - non-positive observed business value
 
-Simulation traffic remains excluded from drift monitoring, although live simulation can count toward prototype business-impact reporting.
+Technical drift uses production-like traffic only. Demo simulation and historical evaluation remain excluded.
 
 ## Deployment governance
 
@@ -94,13 +102,13 @@ Training and Candidate selection may be automated. Deployment is not.
 ```text
 Candidate
    ↓
-Developer reviews metrics and business impact
+Developer reviews metrics, scope, and business impact
    ↓
 Explicit approval checkbox
    ↓
 Promote Candidate to Production
 ```
 
-## Optional notebook
+## Optional Colab path
 
-`notebooks/end_to_end_ml_workflow.ipynb` remains available as an optional separate-compute workflow. It is not required by the prototype and does not change the app's direct retraining design.
+`notebooks/end_to_end_ml_workflow.ipynb` remains available as an accelerated-compute alternative when separate compute or a T4 GPU is useful. The application itself can run the same five-model workflow directly from the Developer workspace.

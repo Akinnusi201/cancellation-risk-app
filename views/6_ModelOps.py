@@ -18,8 +18,8 @@ import src.retraining as retraining
 require_role("developer")
 st.title("🤖 Model Registry & Deployment")
 st.caption(
-    "Compare trained models, retrain the full five-model suite, review the selected Candidate, and control production deployment. "
-    "For this prototype, retraining can run directly inside the app; deployment always remains a separate developer approval."
+    "Compare trained models, retrain the five-model suite on versioned data, review the selected Candidate, and control production deployment. "
+    "The application supports full-dataset retraining directly in the Developer workspace; quick sampled runs are optional."
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,7 +55,7 @@ def run_training_with_ui(request=None, dataset_version=None):
         stage_slot.markdown(f"#### {stage_key.replace('_', ' ').title()}")
         progress_slot.progress(max(0, min(100, int(float(fraction) * 100))), text=message)
         detail_slot.caption(
-            "The prototype is training and evaluating one reproducible stage at a time. "
+            "The system is training and evaluating one reproducible stage at a time. "
             "Production remains available and will not change during this run."
         )
         if completed:
@@ -111,6 +111,7 @@ else:
             "Recall @ 90% precision": tm.get("recall_at_90_precision"),
             "Est. savings / 1,000": format_usd(bm.get("net_savings_per_1000_orders", 0.0), float(fx["rate"])) if bm.get("net_savings_per_1000_orders") is not None else "n/a",
             "Training": model.get("training_device", "CPU"),
+            "Scope": "Full dataset" if model.get("training_scope") in {None, "full_dataset"} else ("Quick sample" if model.get("training_scope") in {"quick_sample", "fast_prototype"} else str(model.get("training_scope"))),
             "Dataset": model.get("dataset_version"),
             "Model ID": model.get("model_id"),
         })
@@ -153,7 +154,10 @@ else:
         selection = candidate_model.get("selection") or candidate.get("selection") or {}
         if selection:
             st.caption("Candidate selection: qualification gates first, then a weighted comparison of discrimination, calibration, high-precision recall, and business value.")
-        st.warning("Deployment is never automatic in this prototype. A developer must explicitly approve the Candidate.")
+        if candidate_model.get("training_scope") in {"quick_sample", "fast_prototype"}:
+            st.warning("This Candidate came from a Quick sampled run. It can be reviewed and promoted, but a Standard full-dataset retraining run is recommended before formal deployment.")
+        else:
+            st.warning("Deployment is never automatic. A developer must explicitly approve the Candidate.")
         confirm = st.checkbox(f"I reviewed {candidate_model.get('display_name')} and approve deployment to Production.")
         if st.button("Promote Candidate to Production", type="primary", disabled=not confirm, use_container_width=True):
             try:
@@ -165,10 +169,10 @@ else:
                 st.exception(exc)
 
 st.divider()
-st.markdown("### Prototype retraining settings")
+st.markdown("### Retraining settings")
 st.caption(
     "These settings control whether a new dataset or sustained model degradation starts retraining directly inside the app. "
-    "The prototype trains Logistic Regression, Random Forest, Extra Trees, LightGBM, and XGBoost, tracks them in MLflow, and registers only the best qualified model as Candidate."
+    "The workflow trains Logistic Regression, Random Forest, Extra Trees, LightGBM, and XGBoost, tracks every run in MLflow, and registers only the best qualified model as Candidate."
 )
 settings = retraining.load_retraining_settings()
 with st.form("retraining_settings_form"):
@@ -178,24 +182,36 @@ with st.form("retraining_settings_form"):
     )
     scope_label = st.radio(
         "Training workload",
-        ["Fast prototype", "Full active dataset"],
-        index=0 if settings.get("training_scope") == "fast_prototype" else 1,
-        help="Fast prototype samples across the full timeline to keep the five-model workflow practical on Streamlit CPU. Full active dataset can take considerably longer.",
+        ["Standard full dataset", "Quick sampled run"],
+        index=1 if settings.get("training_scope") in {"quick_sample", "fast_prototype"} else 0,
+        help="Standard full dataset is the normal retraining path. Quick sampled run is optional for demonstrations, diagnostics, or constrained compute environments.",
     )
     max_rows = st.number_input(
-        "Maximum orders in Fast prototype mode",
+        "Maximum orders in Quick sampled run",
         min_value=10_000,
         max_value=150_000,
         value=int(settings.get("max_training_rows", 60_000)),
         step=10_000,
-        disabled=scope_label == "Full active dataset",
+        disabled=scope_label == "Standard full dataset",
+    )
+    prefer_gpu = st.toggle(
+        "Prefer GPU for LightGBM and XGBoost when available",
+        value=bool(settings.get("prefer_gpu_if_available", True)),
+        help="Random Forest and Extra Trees use CPU. LightGBM and XGBoost attempt GPU first and fall back to CPU automatically.",
+    )
+    include_demo_business = st.toggle(
+        "Include demo simulation in Business Impact",
+        value=bool(settings.get("include_demo_business_impact", True)),
+        help="Turn this off when you want Business Impact to reflect only manual/batch production-like orders. Demo traffic is always excluded from drift monitoring.",
     )
     st.caption("Deployment policy is fixed: retraining may create a Candidate automatically, but only a developer can promote it to Production.")
     if st.form_submit_button("Save retraining settings", use_container_width=True):
         settings = retraining.save_retraining_settings({
             "automatic_retraining_enabled": automatic,
-            "training_scope": "fast_prototype" if scope_label == "Fast prototype" else "full_dataset",
+            "training_scope": "quick_sample" if scope_label == "Quick sampled run" else "full_dataset",
             "max_training_rows": int(max_rows),
+            "prefer_gpu_if_available": prefer_gpu,
+            "include_demo_business_impact": include_demo_business,
         })
         st.success("Retraining settings saved.")
 
@@ -221,13 +237,13 @@ if versions:
         ),
     )
     active_settings = retraining.load_retraining_settings()
-    if active_settings.get("training_scope") == "fast_prototype":
+    if active_settings.get("training_scope") in {"quick_sample", "fast_prototype"}:
         st.info(
-            f"This run will train all five models directly in the app using up to {int(active_settings['max_training_rows']):,} time-spanning orders. "
-            "This is the recommended prototype mode for Streamlit CPU."
+            f"Quick sampled run: all five models will use up to {int(active_settings['max_training_rows']):,} deterministic time-spanning orders. "
+            "Use this for a faster experiment; switch to Standard full dataset for the normal retraining workflow."
         )
     else:
-        st.warning("Full-dataset mode is selected. Training all five models can take several minutes on a CPU-only Streamlit deployment.")
+        st.info("Standard full-dataset training is selected. All available orders in this dataset version will be used; this can take several minutes on CPU-only hosts.")
 
     if st.button("Run Five-Model Retraining Now", type="primary", use_container_width=True):
         result = run_training_with_ui(dataset_version=selected_version)
@@ -237,23 +253,23 @@ if versions:
 else:
     st.info("No versioned dataset is currently available for retraining.")
 
-with st.expander("Optional heavy-compute notebook", expanded=False):
+with st.expander("Optional accelerated-compute notebook", expanded=False):
     st.caption(
-        "The main prototype no longer requires Colab. This notebook is kept as an optional utility if you later want to run the same five-model workflow on a separate compute environment."
+        "The application can retrain directly in the Developer workspace. The Colab notebook is an optional alternative when you want separate compute or a T4 GPU for supported models."
     )
     colab_url = retraining.ordinary_colab_url()
     if colab_url:
-        st.link_button("Open optional training notebook in Colab", colab_url, use_container_width=True)
+        st.link_button("Open training notebook in Colab", colab_url, use_container_width=True)
     elif NOTEBOOK_PATH.exists():
         st.download_button(
-            "Download optional Colab notebook",
+            "Download Colab training notebook",
             NOTEBOOK_PATH.read_bytes(),
             file_name="end_to_end_ml_workflow.ipynb",
             mime="application/x-ipynb+json",
             use_container_width=True,
         )
     uploaded = st.file_uploader(
-        "Import Candidate package from the optional notebook",
+        "Import Candidate package from Colab",
         type=["zip"],
         help="Importing a candidate package never deploys it automatically.",
     )
