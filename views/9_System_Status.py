@@ -6,7 +6,7 @@ from src.auth import require_role
 from src.config import DB_PATH, MLFLOW_TRACKING_URI, ROOT
 from src.database.duckdb_manager import dataframe
 from src.models.registry import PRODUCTION_MODEL_PATH, active_metadata, list_registered_models
-from src.retraining import colab_enterprise_configuration
+import src.retraining as retraining
 
 require_role("developer")
 st.title("⚙️ System Status")
@@ -33,7 +33,7 @@ cols = st.columns(len(items))
 for c, (k, v) in zip(cols, items):
     c.metric(k, v)
 
-st.success("App startup loads the packaged production artifact. It does not retrain the model.")
+st.success("App startup loads the packaged Production model. It does not retrain on startup.")
 st.caption(f"Runtime MLflow backend: {MLFLOW_TRACKING_URI}")
 
 st.subheader("DevOps Readiness")
@@ -63,14 +63,27 @@ else:
             mime="text/yaml",
         )
 
-
 st.subheader("Training & Automation")
-auto_cfg = colab_enterprise_configuration()
-a1, a2, a3 = st.columns(3)
-a1.metric("Colab Notebook", "Packaged" if (ROOT / "notebooks" / "end_to_end_ml_workflow.ipynb").exists() else "Missing")
-a2.metric("Starter Model Suite", f"{len(registry_models)} models" if registry_models else "Missing")
-a3.metric("Colab Enterprise", "Configured" if auto_cfg.get("configured") else "Optional / not configured")
-st.caption("Ordinary Colab is the default classroom training path. Colab Enterprise automation activates only when cloud settings and credentials are configured.")
+settings = retraining.load_retraining_settings()
+a1, a2, a3, a4 = st.columns(4)
+a1.metric("Starter Model Suite", f"{len(registry_models)} models" if registry_models else "Missing")
+a2.metric("Direct Retraining", "Enabled" if settings.get("automatic_retraining_enabled", True) else "Manual")
+a3.metric("Training Scope", "Fast prototype" if settings.get("training_scope") == "fast_prototype" else "Full dataset")
+a4.metric("Deployment", "Manual approval")
+st.caption(
+    "Prototype retraining runs directly in the Streamlit application. New data or sustained degradation can trigger the five-model workflow automatically when enabled. "
+    "The selected model becomes Candidate only; a developer must still promote it to Production."
+)
+if settings.get("training_scope") == "fast_prototype":
+    st.caption(f"Fast prototype limit: up to {int(settings.get('max_training_rows', 60000)):,} time-spanning orders per retraining run.")
+
+requests = retraining.list_retraining_requests()
+if requests:
+    latest_request = requests[-1]
+    st.caption(
+        f"Latest retraining request: {latest_request.get('request_id')} · {latest_request.get('status')} · "
+        f"{latest_request.get('dataset_version')}"
+    )
 
 st.subheader("Recent System Events")
 if len(last_event):

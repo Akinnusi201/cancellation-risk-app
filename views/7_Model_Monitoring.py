@@ -14,7 +14,7 @@ except ImportError:
 from src.config import ARTIFACT_DIR, ROOT
 from src.models.registry import active_metadata, list_registered_models
 from src.database.duckdb_manager import connect
-from src.retraining import evaluate_retraining_policy, list_retraining_requests, ordinary_colab_url, maybe_auto_trigger_enterprise
+import src.retraining as retraining
 # Import the monitoring module as a module instead of importing every symbol
 # eagerly. This keeps the page compatible with a rolling/partial deployment in
 # which an older metrics.py is still present. Newer helpers are resolved with
@@ -660,9 +660,10 @@ with retraining_tab:
         except Exception:
             severe_feature_count = 0
 
-    policy_result = evaluate_retraining_policy(
+    latest_training_dataset = retraining.latest_active_dataset() or {}
+    policy_result = retraining.evaluate_retraining_policy(
         model_version=meta.get("model_version"),
-        dataset_version=meta.get("dataset_version"),
+        dataset_version=latest_training_dataset.get("dataset_version") or meta.get("dataset_version"),
         prediction_psi=prediction_psi_value,
         severe_feature_drift_count=severe_feature_count,
         eligible_runtime_predictions=eligible,
@@ -677,23 +678,53 @@ with retraining_tab:
     p3.metric("Features in DRIFT", severe_feature_count)
     if policy_result.get("triggered"):
         request = policy_result.get("request")
-        try:
-            request = maybe_auto_trigger_enterprise(request)
-        except Exception as trigger_exc:
-            st.warning(f"Retraining request exists, but automatic Colab Enterprise submission failed: {trigger_exc}")
         st.error(f"Retraining requested: {policy_result.get('trigger_type').replace('_', ' ').title()}")
-        if request and request.get("status") == "RUNNING":
-            st.success("Automatic Colab Enterprise retraining has been submitted. The resulting best-qualified model will return as Candidate, not Production.")
-        st.caption("In ordinary Colab, use the button/link below. The winning model becomes Candidate only; it is never deployed automatically.")
+        settings = retraining.load_retraining_settings()
+        request_status = request.get("status") if request else None
+        if request_status == "CANDIDATE_READY":
+            st.success("This retraining request has already produced a Candidate. Review it in Model Registry & Deployment; Production has not changed.")
+        elif request_status == "COMPLETED_NO_CANDIDATE":
+            st.warning("The retraining run completed, but no model passed all qualification gates. Review the MLflow experiment before changing the gates.")
+        elif request_status == "FAILED":
+            st.error("The previous retraining attempt failed. Use Model Registry & Deployment to inspect the request and run retraining again.")
+        elif settings.get("automatic_retraining_enabled", True) and request_status == "RETRAINING_REQUIRED":
+            st.info("Automatic prototype retraining is enabled. The five-model suite will run directly in this app and the best qualified model will become Candidate only.")
+            stage_slot = st.empty()
+            bar_slot = st.empty()
+            detail_slot = st.empty()
+            current_stage = {"key": None}
+
+            def monitoring_training_progress(stage_key, fraction, message):
+                if stage_key != current_stage["key"]:
+                    bar_slot.empty()
+                    detail_slot.empty()
+                    current_stage["key"] = stage_key
+                stage_slot.markdown(f"#### Retraining: {stage_key.replace('_', ' ').title()}")
+                bar_slot.progress(max(0, min(100, int(float(fraction) * 100))), text=message)
+                detail_slot.caption("MLflow tracks every model run. Production stays active until a developer explicitly promotes the Candidate.")
+
+            try:
+                request = retraining.maybe_run_automatic_retraining(request, progress=monitoring_training_progress)
+                bar_slot.empty()
+                detail_slot.empty()
+                if request and request.get("status") == "CANDIDATE_READY":
+                    stage_slot.success("Automatic retraining completed. A Candidate is ready in Model Registry & Deployment.")
+                else:
+                    stage_slot.info("Retraining completed without a qualified Candidate. Review the request history and experiment runs.")
+            except Exception as trigger_exc:
+                bar_slot.empty()
+                detail_slot.empty()
+                stage_slot.error(f"Automatic retraining failed: {trigger_exc}")
+        elif request_status == "RUNNING":
+            st.info("Retraining is currently marked as running.")
+        else:
+            st.warning("Automatic retraining is disabled. The request is queued; use Model Registry & Deployment to run it when ready.")
+        st.caption("Retraining may select a Candidate automatically, but deployment is always a separate developer approval.")
     else:
-        st.success("No retraining trigger is active. The current production model remains deployed.")
+        st.success("No retraining trigger is active. The current Production model remains deployed.")
         st.caption("Unlabeled drift must persist across consecutive health checks. Confirmed labeled degradation can trigger immediately once the minimum labeled sample is available.")
 
-    colab = ordinary_colab_url()
-    if colab:
-        st.link_button("Open Retraining Workflow in Colab", colab, use_container_width=True)
-
-    requests = list_retraining_requests()
+    requests = retraining.list_retraining_requests()
     if requests:
         st.markdown("#### Retraining request history")
         req = pd.DataFrame(requests)

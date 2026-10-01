@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.1 - Direct prototype retraining
+
+- Removed the external managed-notebook execution path from the prototype.
+- Added Developer retraining settings with automatic/manual control.
+- Added direct in-app five-model retraining with MLflow tracking.
+- New data and sustained degradation can launch retraining automatically when enabled.
+- Added Fast prototype and Full active dataset training scopes.
+- Best qualified model is registered as Candidate automatically; deployment still requires explicit developer promotion.
+- Kept the ordinary Colab notebook only as an optional heavy-compute utility.
+
 ## v4.0 - Colab end-to-end MLOps workflow
 - Added a five-model starter registry: Logistic Regression, Random Forest, Extra Trees, LightGBM, and XGBoost.
 - Kept the existing LightGBM artifact as the initial Production model.
@@ -11,7 +21,6 @@
 - Added candidate-package import from Colab.
 - Added hybrid monitoring-driven retraining requests using sustained drift and labeled performance degradation.
 - Added outcome-feedback upload for observed runtime performance metrics.
-- Added optional Colab Enterprise notebook-execution triggering when Google Cloud configuration is present.
 - Reworked the Experiments page into a simple MLflow-style run browser and model-comparison interface.
 - Rewrote README.md as a first-deployment guide for technical and non-technical readers.
 

@@ -1,0 +1,7 @@
+{
+  "automatic_retraining_enabled": true,
+  "training_scope": "fast_prototype",
+  "max_training_rows": 60000,
+  "deployment_policy": "manual_promotion_required",
+  "candidate_registration": "automatic"
+}

@@ -9,11 +9,11 @@ from src.data.ingestion import ingest_batch
 from src.database.duckdb_manager import dataframe
 from src.config import ROOT
 from src.models.registry import active_metadata
-from src.retraining import create_retraining_request, maybe_auto_trigger_enterprise
+import src.retraining as retraining
 
 require_role("developer")
 st.title("📦 DataOps")
-st.caption("Ingest → validate → quarantine → aggregate → version. DataOps never trains or promotes a model.")
+st.caption("Ingest → validate → quarantine → aggregate → version → optional retraining handoff. DataOps never changes Production directly.")
 st.info("The Pakistan baseline is already packaged as an order-level dataset version. Upload only new batches here.")
 
 STEPS = {
@@ -76,22 +76,51 @@ if up is not None:
             if result["status"] == "success":
                 progress.progress(100, text="100% • Dataset version created")
                 meta = active_metadata() or {}
-                request = create_retraining_request(
+                request = retraining.create_retraining_request(
                     meta.get("model_version", "unknown"),
                     result["dataset_version"],
                     "NEW_DATA_VERSION",
                     {"dataset_version": result["dataset_version"], "snapshot_orders": result.get("snapshot_orders")},
                     source="dataops",
                 )
-                try:
-                    request = maybe_auto_trigger_enterprise(request)
-                except Exception as trigger_exc:
-                    st.warning(f"Training request was queued, but automatic Colab Enterprise submission failed: {trigger_exc}")
-                stage.success(
-                    f"DataOps complete. **{result['dataset_version']}** is versioned and a training request **{request['request_id']}** has been queued. "
-                    "Production was not changed."
-                )
-                st.toast("Dataset version created and training request queued.", icon="✅")
+                settings = retraining.load_retraining_settings()
+                if settings.get("automatic_retraining_enabled", True):
+                    stage.success(
+                        f"DataOps complete. **{result['dataset_version']}** is versioned. Automatic prototype retraining is enabled, so the five-model suite will run now. "
+                        "Production remains unchanged during training."
+                    )
+                    train_title = st.empty()
+                    train_bar = st.empty()
+                    train_detail = st.empty()
+                    current_training_stage = {"key": None}
+
+                    def training_progress(stage_key, fraction, message):
+                        if stage_key != current_training_stage["key"]:
+                            train_bar.empty()
+                            train_detail.empty()
+                            current_training_stage["key"] = stage_key
+                        train_title.markdown(f"### Retraining: {stage_key.replace('_', ' ').title()}")
+                        train_bar.progress(max(0, min(100, int(float(fraction) * 100))), text=message)
+                        train_detail.caption("All five models are tracked in MLflow. The best qualified model becomes Candidate only; deployment still requires developer approval.")
+
+                    try:
+                        request = retraining.maybe_run_automatic_retraining(request, progress=training_progress)
+                        train_bar.empty()
+                        train_detail.empty()
+                        if request and request.get("status") == "CANDIDATE_READY":
+                            train_title.success("Automatic retraining finished. A Candidate is ready for developer review in Model Registry & Deployment.")
+                        else:
+                            train_title.info("The dataset is ready, but no Candidate was selected. Review the retraining request in Model Registry & Deployment.")
+                    except Exception as trigger_exc:
+                        train_bar.empty()
+                        train_detail.empty()
+                        train_title.error(f"DataOps succeeded, but automatic retraining failed: {trigger_exc}")
+                else:
+                    stage.success(
+                        f"DataOps complete. **{result['dataset_version']}** is versioned and retraining request **{request['request_id']}** is queued. "
+                        "Automatic retraining is disabled in Model Registry settings, so Production remains unchanged."
+                    )
+                st.toast("Dataset version created and retraining request recorded.", icon="✅")
             elif result["status"] == "duplicate":
                 progress.progress(100, text="Complete • No new data")
                 stage.warning(result["message"])

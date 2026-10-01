@@ -1,136 +1,106 @@
 # Architecture
 
-## System goal
-
-The application separates operational scoring from model development. Operations always has a deployable model available; training jobs happen independently and cannot replace Production without explicit developer approval.
-
-## End-to-end lifecycle
+## Prototype system flow
 
 ```text
-Incoming item-level data
-        ↓
-DataOps
-  fingerprint / validate / quarantine
-  aggregate to order level
-  recompute historical customer features
-  create immutable dataset version
-        ↓
-Training request
-        ↓
-Google Colab / Colab Enterprise
-        ↓
-Five-model experiment suite
-  Logistic Regression
-  Random Forest
-  Extra Trees
-  LightGBM
-  XGBoost
-        ↓
-MLflow tracking + reproducibility metadata
-        ↓
-Qualification gates
-        ↓
-Best qualified model → Candidate
-        ↓
-Developer approval
-        ↓
-Production model
-        ↓
-Operations scoring
-        ↓
-Runtime + drift + observed-performance monitoring
-        ↓
-Degradation policy
-        ↓
-Retraining request
+Customer / new order data
+        │
+        ├─────────────── Operations path ───────────────┐
+        │                                               │
+        ▼                                               ▼
+     DataOps                                      Production model
+ ingest / validate                               cancellation risk
+ quarantine / aggregate                               │
+ version data                                          ▼
+        │                                      profit-aware decision
+        ▼                                               │
+ versioned dataset                                      ▼
+        │                                      Operations Manager
+        ▼                                      release / verify order
+ retraining request
+        │
+        ▼
+ Prototype retraining settings
+ automatic enabled? ── no ──► queued request
+        │ yes
+        ▼
+ direct five-model training in Streamlit
+        │
+        ├── Logistic Regression
+        ├── Random Forest
+        ├── Extra Trees
+        ├── LightGBM
+        └── XGBoost
+        │
+        ▼
+ MLflow experiment tracking
+        │
+        ▼
+ qualification gates + weighted comparison
+        │
+        ▼
+ best qualified model = Candidate
+        │
+        ▼
+ Developer approval
+        │
+        ▼
+ Promote Candidate to Production
+        │
+        ▼
+ Monitoring
+        │
+        └── sustained degradation creates a new retraining request
 ```
 
-## Production inference
+## DataOps boundary
 
-`artifacts/production_model.pkl` and `artifacts/active_model.json` define the active Production model. Streamlit startup loads these artifacts and never launches training.
+DataOps owns ingestion, validation, quarantine, aggregation, lineage, customer-history recomputation, and immutable dataset versioning.
 
-The initial Production model remains the packaged LightGBM model. The repository also includes a starter registry containing trained Logistic Regression, Random Forest, Extra Trees, and XGBoost artifacts for immediate comparison.
+Creating a new dataset version can create a retraining request. If automatic retraining is enabled, the request is handed to the direct prototype trainer. DataOps never promotes a model or changes Production itself.
 
-## DataOps
+## ModelOps boundary
 
-DataOps owns trustworthy data products, not model training. It performs duplicate protection, raw preservation, validation, quarantine, deterministic order aggregation, cumulative customer-history recomputation, and immutable dataset versioning.
+ModelOps trains and compares five model families using the same temporal split and feature contract. Each run is tracked in MLflow with reproducibility metadata.
 
-A successful new dataset version creates a training request. Ordinary Colab requires a developer to open the notebook; an optional Colab Enterprise integration can submit a notebook execution when cloud configuration is present.
+Candidate selection is automatic after qualification gates, but deployment is manual.
 
-## Model training
+## Prototype retraining modes
 
-Formal training runs in `notebooks/end_to_end_ml_workflow.ipynb` and uses `src/models/suite.py`.
+### Fast prototype
 
-All five models receive the same time-based train / validation / test split and leakage-safe feature contract. Random Forest, Extra Trees, and Logistic Regression use CPU. LightGBM and XGBoost prefer a GPU and fall back to CPU if needed.
+A deterministic time-spanning sample, default 60,000 orders, is selected from the chosen dataset version. This is intended for hosted Streamlit CPU environments and live demonstrations.
 
-The notebook stores full experiment output and MLflow tracking data in Google Drive by default so the Streamlit host does not become the computational bottleneck.
+### Full active dataset
 
-## Experiment tracking and reproducibility
+The same five-model workflow runs on the complete selected dataset version. This is more computationally expensive and may take several minutes.
 
-Experiments and runs have deterministic readable identities such as:
+## Monitoring trigger
+
+Retraining can be requested by:
+
+- a new dataset version
+- sustained severe prediction or feature drift
+- confirmed ROC-AUC degradation
+- confirmed Brier-score deterioration
+- non-positive observed business value
+
+Simulation traffic remains excluded from drift monitoring, although live simulation can count toward prototype business-impact reporting.
+
+## Deployment governance
+
+Training and Candidate selection may be automated. Deployment is not.
 
 ```text
-cancellation-risk__pakistan_seed_v1__20260930
-xgboost__20260930T180000Z
+Candidate
+   ↓
+Developer reviews metrics and business impact
+   ↓
+Explicit approval checkbox
+   ↓
+Promote Candidate to Production
 ```
 
-Each run stores the dataset version, timestamp, random seed, split sizes, hyperparameters, training device, technical metrics, business metrics, Git commit SHA, Python/library versions, and serialized model artifact.
+## Optional notebook
 
-## Candidate selection
-
-Candidate selection is a two-stage process:
-
-1. Models must pass qualification gates for discrimination, calibration, high-precision recall, and positive business value.
-2. Qualified models receive a weighted score that combines ROC-AUC, PR-AUC, calibration, recall at 90% precision, and normalized business value.
-
-The best qualified model becomes Candidate. Candidate creation can be automated; Production deployment cannot.
-
-## Model registry and deployment
-
-The developer Model Registry exposes three plain-language states:
-
-- **Ready:** trained and available for comparison.
-- **Candidate:** proposed Production replacement.
-- **Production:** currently scoring orders.
-
-A developer must review the Candidate and click **Promote Candidate to Production**. The promotion step replaces the Production artifact and refreshes reference prediction/support artifacts used by monitoring and simulation.
-
-## Monitoring and degradation
-
-Monitoring separates:
-
-- runtime health and latency,
-- data/prediction drift,
-- live prototype business impact,
-- historical model/business evaluation,
-- observed production performance once final outcomes are available.
-
-Simulation remains excluded from technical drift monitoring because the simulation queue is deliberately risk-stratified. It can still contribute to prototype business impact after the Operations Manager makes a decision.
-
-### Hybrid retraining trigger
-
-Drift is an early warning, not proof that predictive performance has degraded. Severe unlabeled drift must persist across consecutive health checks. When at least 100 real final outcomes are available, observed ROC-AUC, Brier score, and business value can confirm degradation directly.
-
-A qualifying trigger creates a retraining request. The resulting model suite can automatically choose a new Candidate, but the developer still controls deployment.
-
-## Colab Enterprise option
-
-The classroom path uses ordinary Google Colab. The optional production-style path uses a Colab Enterprise Notebook Execution Job. When the required `COLAB_ENTERPRISE_*` settings and Google Application Default Credentials are available, the app can submit the training notebook programmatically.
-
-## Role boundaries
-
-### Operations Manager
-
-Can use the Operations Dashboard, Score Order, and Decision History. Operations does not see DataOps, experiments, the model registry, or deployment controls.
-
-### Developer
-
-Can manage DataOps, the model registry, experiments, monitoring, retraining, and system status.
-
-## DevOps
-
-GitHub Actions runs tests and packaged-inference checks and builds the Docker image. The Streamlit deployment remains lightweight because computational training is pushed to Colab. The application can still run locally or in Docker.
-
-## Currency layer
-
-Model features remain in the original PKR units used for training. The UI converts money to USD for presentation using the FX adapter. Manual USD inputs are converted back to PKR before inference, preserving the model feature contract.
+`notebooks/end_to_end_ml_workflow.ipynb` remains available as an optional separate-compute workflow. It is not required by the prototype and does not change the app's direct retraining design.

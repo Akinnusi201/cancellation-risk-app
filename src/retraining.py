@@ -1,7 +1,13 @@
-"""Hybrid monitoring-driven retraining orchestration.
+"""Prototype retraining orchestration.
 
-Ordinary Colab is the default classroom path. Colab Enterprise execution is optional
-and only activates when Google Cloud configuration and credentials are present.
+The prototype can retrain directly inside the Streamlit application. New data or
+monitoring degradation creates a retraining request. When automatic retraining is
+enabled, the five-model suite runs immediately in the app environment, MLflow tracks
+the experiment, the best qualified model is registered as Candidate, and production
+remains unchanged until a developer explicitly promotes it.
+
+The packaged Colab notebook is kept only as an optional heavy-compute utility. It is
+not required for the prototype workflow.
 """
 
 from __future__ import annotations
@@ -12,11 +18,23 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.config import ARTIFACT_DIR
+import numpy as np
+
+from src.config import ARTIFACT_DIR, MLFLOW_TRACKING_URI
 
 RETRAINING_DIR = ARTIFACT_DIR / "retraining"
 REQUESTS_PATH = RETRAINING_DIR / "requests.json"
 HEALTH_HISTORY_PATH = RETRAINING_DIR / "health_checks.json"
+SETTINGS_PATH = RETRAINING_DIR / "settings.json"
+RUNS_DIR = RETRAINING_DIR / "runs"
+
+DEFAULT_RETRAINING_SETTINGS = {
+    "automatic_retraining_enabled": True,
+    "training_scope": "fast_prototype",
+    "max_training_rows": 60_000,
+    "deployment_policy": "manual_promotion_required",
+    "candidate_registration": "automatic",
+}
 
 
 def _read(path, default):
@@ -31,13 +49,29 @@ def _write(path, value):
     path.write_text(json.dumps(value, indent=2, default=str))
 
 
+def load_retraining_settings():
+    stored = _read(SETTINGS_PATH, {})
+    return {**DEFAULT_RETRAINING_SETTINGS, **(stored or {})}
+
+
+def save_retraining_settings(settings):
+    clean = {**DEFAULT_RETRAINING_SETTINGS, **(settings or {})}
+    clean["automatic_retraining_enabled"] = bool(clean.get("automatic_retraining_enabled", True))
+    clean["training_scope"] = "full_dataset" if clean.get("training_scope") == "full_dataset" else "fast_prototype"
+    clean["max_training_rows"] = max(5_000, int(clean.get("max_training_rows", 60_000) or 60_000))
+    clean["deployment_policy"] = "manual_promotion_required"
+    clean["candidate_registration"] = "automatic"
+    _write(SETTINGS_PATH, clean)
+    return clean
+
+
 def list_retraining_requests():
     return _read(REQUESTS_PATH, [])
 
 
-def create_retraining_request(model_version, dataset_version, trigger_type, signals, source="monitoring"):
+def create_retraining_request(model_version, dataset_version, trigger_type, signals, source="monitoring", force_new=False):
     requests = list_retraining_requests()
-    open_existing = next((
+    open_existing = None if force_new else next((
         r for r in reversed(requests)
         if r.get("status") in {"RETRAINING_REQUIRED", "RUNNING", "CANDIDATE_READY"}
         and r.get("model_version") == str(model_version)
@@ -55,6 +89,7 @@ def create_retraining_request(model_version, dataset_version, trigger_type, sign
         "signals": signals,
         "source": source,
         "status": "RETRAINING_REQUIRED",
+        "training_backend": "streamlit_local_prototype",
         "deployment_policy": "candidate_requires_manual_promotion",
     }
     requests.append(request)
@@ -141,7 +176,7 @@ def evaluate_retraining_policy(
     signals["severe_drift"] = severe_drift
     signals["confirmed_degradation"] = confirmed
 
-    item, history = record_health_check(model_version, signals)
+    _, history = record_health_check(model_version, signals)
     recent_same = [h for h in history if h.get("model_version") == str(model_version)][-2:]
     sustained_drift = len(recent_same) >= 2 and all(bool(h.get("severe_drift")) for h in recent_same)
     signals["sustained_drift"] = sustained_drift
@@ -163,7 +198,214 @@ def evaluate_retraining_policy(
     }
 
 
+def latest_active_dataset():
+    """Return metadata for the active versioned dataset."""
+    from src.database.duckdb_manager import connect
+
+    with connect() as con:
+        row = con.execute(
+            """
+            SELECT dataset_version, processed_path, row_count, order_count
+            FROM dataset_versions
+            WHERE active = TRUE
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "dataset_version": row[0],
+        "processed_path": row[1],
+        "row_count": int(row[2] or 0),
+        "order_count": int(row[3] or 0),
+    }
+
+
+def list_dataset_versions():
+    from src.database.duckdb_manager import connect
+
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT dataset_version, processed_path, row_count, order_count, active, created_at
+            FROM dataset_versions
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+    return [
+        {
+            "dataset_version": r[0],
+            "processed_path": r[1],
+            "row_count": int(r[2] or 0),
+            "order_count": int(r[3] or 0),
+            "active": bool(r[4]),
+            "created_at": r[5],
+        }
+        for r in rows
+    ]
+
+
+def _prototype_sample(snapshot, max_rows):
+    """Create a deterministic time-spanning training sample for the classroom prototype."""
+    if len(snapshot) <= max_rows:
+        return snapshot.copy()
+    ordered = snapshot.sort_values(["created_at", "order_id"]).reset_index(drop=True)
+    indices = np.linspace(0, len(ordered) - 1, num=max_rows, dtype=int)
+    return ordered.iloc[np.unique(indices)].reset_index(drop=True)
+
+
+def load_training_snapshot(dataset_version=None, settings=None):
+    """Load a versioned snapshot and apply the configured prototype/full scope."""
+    from src.data.io import read_snapshot
+
+    settings = settings or load_retraining_settings()
+    versions = list_dataset_versions()
+    selected = next((v for v in versions if v["dataset_version"] == dataset_version), None)
+    if selected is None:
+        selected = next((v for v in versions if v.get("active")), None)
+    if selected is None:
+        raise FileNotFoundError("No versioned dataset is available for retraining.")
+
+    path = Path(selected["processed_path"])
+    if not path.exists():
+        raise FileNotFoundError(f"Dataset artifact does not exist: {path}")
+    snapshot = read_snapshot(path)
+    original_rows = len(snapshot)
+    if settings.get("training_scope") == "fast_prototype":
+        snapshot = _prototype_sample(snapshot, int(settings.get("max_training_rows", 60_000)))
+    return snapshot, selected, {
+        "source_rows": int(original_rows),
+        "training_rows": int(len(snapshot)),
+        "training_scope": settings.get("training_scope"),
+    }
+
+
+def _new_manual_request(dataset_version, trigger_type="MANUAL_RETRAIN"):
+    from src.models.registry import active_metadata
+
+    active = active_metadata() or {}
+    return create_retraining_request(
+        active.get("model_version", "unknown"),
+        dataset_version,
+        trigger_type,
+        {"requested_by": "developer", "dataset_version": dataset_version},
+        source="modelops",
+        force_new=True,
+    )
+
+
+def run_local_retraining(request=None, dataset_version=None, progress=None, settings=None):
+    """Run the complete five-model retraining workflow directly in the app process.
+
+    All five runs are tracked in MLflow. The best qualified model is automatically
+    registered as Candidate. Production never changes here; promotion remains a separate
+    developer action.
+    """
+    from src.database.duckdb_manager import log_event
+    from src.models.registry import import_candidate_package
+    from src.models.suite import SuiteConfig, train_model_suite
+
+    settings = settings or load_retraining_settings()
+    if request is None:
+        dataset_version = dataset_version or (latest_active_dataset() or {}).get("dataset_version")
+        if not dataset_version:
+            raise FileNotFoundError("No active dataset is available for retraining.")
+        request = _new_manual_request(dataset_version)
+    request_id = request["request_id"]
+    if request.get("status") == "CANDIDATE_READY":
+        return request
+
+    update_retraining_request(request_id, "RUNNING", {
+        "training_backend": "streamlit_local_prototype",
+        "training_scope": settings.get("training_scope"),
+    })
+    log_event(
+        f"retrain_start_{request_id}",
+        "MODEL_RETRAINING",
+        "STARTED",
+        f"Local prototype retraining started for {request.get('dataset_version')}",
+        {"request_id": request_id, "trigger_type": request.get("trigger_type")},
+    )
+
+    try:
+        if progress:
+            progress("load_data", 0.05, "Loading the selected versioned dataset")
+        snapshot, selected, scope_meta = load_training_snapshot(
+            request.get("dataset_version") or dataset_version,
+            settings=settings,
+        )
+        if progress:
+            progress(
+                "load_data",
+                1.0,
+                f"Loaded {scope_meta['training_rows']:,} of {scope_meta['source_rows']:,} orders for {selected['dataset_version']}",
+            )
+
+        output_dir = RUNS_DIR / request_id
+        experiment_name = f"cancellation-risk__{selected['dataset_version']}__{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+        config = SuiteConfig(
+            dataset_version=selected["dataset_version"],
+            output_dir=output_dir,
+            use_gpu=False,
+            experiment_name=experiment_name,
+            mlflow_tracking_uri=MLFLOW_TRACKING_URI,
+        )
+        summary = train_model_suite(snapshot, config, progress=progress)
+        candidate_id = summary.get("candidate_model_id")
+        package_path = summary.get("candidate_package")
+        imported = None
+        if candidate_id and package_path and Path(package_path).exists():
+            if progress:
+                progress("register_candidate", 0.35, f"Registering {candidate_id} as Candidate")
+            imported = import_candidate_package(Path(package_path).read_bytes())
+            if progress:
+                progress("register_candidate", 1.0, "Candidate registered; production is unchanged")
+
+        status = "CANDIDATE_READY" if imported else "COMPLETED_NO_CANDIDATE"
+        updated = update_retraining_request(request_id, status, {
+            "dataset_version": selected["dataset_version"],
+            "experiment_name": summary.get("experiment_name"),
+            "candidate_model_id": candidate_id,
+            "candidate_package": package_path,
+            "training_scope": scope_meta["training_scope"],
+            "source_rows": scope_meta["source_rows"],
+            "training_rows": scope_meta["training_rows"],
+            "model_count": len(summary.get("models", [])),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
+        log_event(
+            f"retrain_done_{request_id}",
+            "MODEL_RETRAINING",
+            "SUCCESS" if imported else "WARNING",
+            f"Retraining completed; candidate {candidate_id or 'not selected'}",
+            {"request_id": request_id, "candidate_model_id": candidate_id},
+        )
+        return updated
+    except Exception as exc:
+        update_retraining_request(request_id, "FAILED", {"error": str(exc)})
+        log_event(
+            f"retrain_failed_{request_id}",
+            "MODEL_RETRAINING",
+            "FAILED",
+            str(exc),
+            {"request_id": request_id},
+        )
+        raise
+
+
+def maybe_run_automatic_retraining(request, progress=None):
+    """Run an open retraining request in-app when prototype automation is enabled."""
+    if not request or request.get("status") != "RETRAINING_REQUIRED":
+        return request
+    settings = load_retraining_settings()
+    if not settings.get("automatic_retraining_enabled", True):
+        return request
+    return run_local_retraining(request=request, progress=progress, settings=settings)
+
+
 def ordinary_colab_url():
+    """Optional heavy-compute notebook link; not required by the prototype."""
     explicit = os.getenv("COLAB_NOTEBOOK_URL")
     if explicit:
         return explicit
@@ -173,75 +415,3 @@ def ordinary_colab_url():
         repo = repo.removeprefix("https://github.com/").removesuffix(".git").strip("/")
         return f"https://colab.research.google.com/github/{repo}/blob/{branch}/notebooks/end_to_end_ml_workflow.ipynb"
     return None
-
-
-def colab_enterprise_configuration():
-    keys = {
-        "project_id": os.getenv("COLAB_ENTERPRISE_PROJECT_ID"),
-        "location": os.getenv("COLAB_ENTERPRISE_LOCATION"),
-        "runtime_template_id": os.getenv("COLAB_ENTERPRISE_RUNTIME_TEMPLATE_ID"),
-        "notebook_gcs_uri": os.getenv("COLAB_ENTERPRISE_NOTEBOOK_GCS_URI"),
-        "output_gcs_uri": os.getenv("COLAB_ENTERPRISE_OUTPUT_GCS_URI"),
-        "service_account": os.getenv("COLAB_ENTERPRISE_SERVICE_ACCOUNT"),
-        "execution_user": os.getenv("COLAB_ENTERPRISE_EXECUTION_USER"),
-    }
-    required = ["project_id", "location", "runtime_template_id", "notebook_gcs_uri", "output_gcs_uri"]
-    keys["configured"] = all(keys.get(k) for k in required) and bool(keys.get("service_account") or keys.get("execution_user"))
-    return keys
-
-
-def trigger_colab_enterprise(display_name=None):
-    cfg = colab_enterprise_configuration()
-    if not cfg["configured"]:
-        raise RuntimeError("Colab Enterprise is not configured. Set the COLAB_ENTERPRISE_* environment variables first.")
-    try:
-        import google.auth
-        from google.auth.transport.requests import AuthorizedSession
-    except Exception as exc:
-        raise RuntimeError("Install google-auth to trigger Colab Enterprise from the app.") from exc
-
-    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    authed = AuthorizedSession(credentials)
-    parent = f"projects/{cfg['project_id']}/locations/{cfg['location']}"
-    endpoint = f"https://{cfg['location']}-aiplatform.googleapis.com/v1/{parent}/notebookExecutionJobs"
-    body = {
-        "displayName": display_name or f"cancellation-risk-retrain-{utc_short()}",
-        "notebookRuntimeTemplateResourceName": f"{parent}/notebookRuntimeTemplates/{cfg['runtime_template_id']}",
-        "gcsNotebookSource": {"uri": cfg["notebook_gcs_uri"]},
-        "gcsOutputUri": cfg["output_gcs_uri"],
-    }
-    if cfg.get("service_account"):
-        body["serviceAccount"] = cfg["service_account"]
-    else:
-        body["executionUser"] = cfg["execution_user"]
-    response = authed.post(endpoint, json=body, timeout=30)
-    if response.status_code >= 300:
-        raise RuntimeError(f"Colab Enterprise trigger failed ({response.status_code}): {response.text[:500]}")
-    return response.json()
-
-
-def utc_short():
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-
-
-def enterprise_auto_trigger_enabled():
-    return os.getenv("AUTO_TRIGGER_COLAB_ENTERPRISE", "false").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def maybe_auto_trigger_enterprise(request):
-    """Submit an open request to Colab Enterprise when explicitly enabled.
-
-    This opt-in guard prevents an accidental cloud-cost side effect in classroom or
-    local deployments. Ordinary Colab remains the default manual launch path.
-    """
-    if not request or request.get("status") != "RETRAINING_REQUIRED":
-        return request
-    if not enterprise_auto_trigger_enabled() or not colab_enterprise_configuration().get("configured"):
-        return request
-    result = trigger_colab_enterprise(display_name=f"cancellation-risk-{request['request_id']}")
-    job_name = result.get("name") or result.get("metadata", {}).get("target")
-    return update_retraining_request(
-        request["request_id"],
-        "RUNNING",
-        {"colab_enterprise_job": job_name, "trigger_response": result},
-    )

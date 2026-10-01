@@ -253,12 +253,28 @@ with tabs[0]:
             st.session_state[index_key] = 0
         idx = st.session_state[index_key] % len(demo)
         row = demo.iloc[[idx]].copy()
-        score_key = f"sim_score_{idx}_{mode}_{policy}"
-        if st.session_state.get("sim_score_key") != score_key:
-            st.session_state.sim_score_key = score_key
-            st.session_state.current_score = _score_order_compat(row, reference, policy, scoring_mode)
-            st.session_state.decision_made = False
-        sc = st.session_state.current_score
+        # Streamlit may preserve some session keys across a hot redeploy while
+        # dropping others. Never assume ``current_score`` exists just because
+        # ``sim_score_key`` survived from an earlier rerun/version.
+        policy_key = tuple(sorted((str(k), float(v)) for k, v in policy.items()))
+        score_key = f"sim_score_{idx}_{mode}_{policy_key}"
+        cached_score = st.session_state.get("current_score")
+        needs_score = (
+            st.session_state.get("sim_score_key") != score_key
+            or not isinstance(cached_score, dict)
+            or "probability" not in cached_score
+        )
+        if needs_score:
+            st.session_state["sim_score_key"] = score_key
+            st.session_state["current_score"] = _score_order_compat(
+                row, reference, policy, scoring_mode
+            )
+            st.session_state["decision_made"] = False
+
+        sc = st.session_state.get("current_score")
+        if not isinstance(sc, dict):
+            st.error("The order score could not be initialized. Please refresh the page and try again.")
+            st.stop()
 
         if mode == "Live Operations Simulation":
             show_customer_order_status(sc, st.session_state.get("decision_made", False))
@@ -299,8 +315,8 @@ with tabs[0]:
             next_label = "Place Next Simulated Customer Order →" if mode == "Live Operations Simulation" else "Next Historical Order →"
             if st.button(next_label, type="primary"):
                 st.session_state[index_key] += 1
-                st.session_state.current_score = None
-                st.session_state.decision_made = False
+                st.session_state["current_score"] = None
+                st.session_state["decision_made"] = False
                 st.rerun()
 
 with tabs[1]:

@@ -13,18 +13,13 @@ from src.models.registry import (
     promote_registered_model,
     set_candidate,
 )
-from src.retraining import (
-    colab_enterprise_configuration,
-    list_retraining_requests,
-    ordinary_colab_url,
-    trigger_colab_enterprise,
-)
+import src.retraining as retraining
 
 require_role("developer")
 st.title("🤖 Model Registry & Deployment")
 st.caption(
-    "Compare trained models, review the current candidate, and control production deployment. "
-    "Training is intentionally separated from the web app and runs in Google Colab or Colab Enterprise."
+    "Compare trained models, retrain the full five-model suite, review the selected Candidate, and control production deployment. "
+    "For this prototype, retraining can run directly inside the app; deployment always remains a separate developer approval."
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +37,48 @@ def plain_health(model):
     return "Needs review"
 
 
+def run_training_with_ui(request=None, dataset_version=None):
+    stage_slot = st.empty()
+    progress_slot = st.empty()
+    detail_slot = st.empty()
+    completed_slot = st.empty()
+    current = {"stage": None}
+    completed = []
+
+    def progress(stage_key, fraction, message):
+        if stage_key != current["stage"]:
+            if current["stage"] is not None:
+                completed.append(current["stage"].replace("_", " ").title())
+            progress_slot.empty()
+            detail_slot.empty()
+            current["stage"] = stage_key
+        stage_slot.markdown(f"#### {stage_key.replace('_', ' ').title()}")
+        progress_slot.progress(max(0, min(100, int(float(fraction) * 100))), text=message)
+        detail_slot.caption(
+            "The prototype is training and evaluating one reproducible stage at a time. "
+            "Production remains available and will not change during this run."
+        )
+        if completed:
+            completed_slot.caption("Completed: " + " · ".join(completed[-5:]))
+
+    try:
+        result = retraining.run_local_retraining(
+            request=request,
+            dataset_version=dataset_version,
+            progress=progress,
+        )
+        progress_slot.empty()
+        detail_slot.empty()
+        stage_slot.success("Retraining complete. The best qualified model is registered as Candidate; Production is unchanged.")
+        return result
+    except Exception as exc:
+        progress_slot.empty()
+        detail_slot.empty()
+        stage_slot.error(f"Retraining failed: {exc}")
+        st.exception(exc)
+        return None
+
+
 models = list_registered_models()
 active = active_metadata() or {}
 candidate = candidate_metadata()
@@ -54,8 +91,8 @@ c3.metric("Candidate", candidate.get("model_id") if candidate else "None")
 
 st.markdown("### Model registry")
 st.caption(
-    "**Production** is the model currently scoring orders. **Candidate** is the proposed replacement. "
-    "**Ready** models are trained and available for comparison but are not deployed."
+    "**Production** is scoring orders now. **Candidate** is the proposed replacement. "
+    "**Ready** models are trained comparison models. Retraining never changes Production automatically."
 )
 if not models:
     st.warning("No registered models are packaged yet.")
@@ -77,8 +114,7 @@ else:
             "Dataset": model.get("dataset_version"),
             "Model ID": model.get("model_id"),
         })
-    table = pd.DataFrame(rows)
-    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     selected_id = st.selectbox(
         "Inspect a model",
@@ -94,20 +130,20 @@ else:
     d.metric("Recall @ 90% precision", f"{tm.get('recall_at_90_precision', float('nan')):.1%}")
     st.caption(
         f"Experiment: `{selected.get('experiment_name', 'packaged starter')}` · Run: `{selected.get('run_name', selected_id)}` · "
-        f"Seed: {selected.get('random_seed', 42)} · Scope: {selected.get('training_scope', 'full training workflow')}"
+        f"Seed: {selected.get('random_seed', 42)} · Scope: {selected.get('training_scope', 'packaged / formal workflow')}"
     )
 
     if selected.get("status") != "PRODUCTION":
         if st.button("Mark selected model as Candidate", use_container_width=True):
             set_candidate(selected_id, "Developer selected model from registry")
-            st.success(f"{selected.get('display_name')} is now the candidate. Production has not changed.")
+            st.success(f"{selected.get('display_name')} is now the Candidate. Production has not changed.")
             st.rerun()
 
 st.divider()
 st.markdown("### Candidate review and deployment")
 candidate = candidate_metadata()
 if not candidate:
-    st.info("There is no active candidate. A Colab experiment can select one automatically, or you can mark a registered model as Candidate above.")
+    st.info("There is no active Candidate. Retraining can select one automatically, or you can mark a Ready model as Candidate above.")
 else:
     candidate_model = next((m for m in list_registered_models() if m.get("model_id") == candidate.get("model_id")), None)
     if not candidate_model:
@@ -116,69 +152,133 @@ else:
         st.success(f"Candidate: **{candidate_model.get('display_name')}** · `{candidate_model.get('model_id')}`")
         selection = candidate_model.get("selection") or candidate.get("selection") or {}
         if selection:
-            st.caption("Candidate selection: passed qualification gates, then ranked using discrimination, calibration, fixed-precision recall, and business value.")
-        st.warning("Deployment is never automatic in this project. A developer must explicitly approve the candidate.")
-        confirm = st.checkbox(f"I reviewed {candidate_model.get('display_name')} and approve deployment to production.")
+            st.caption("Candidate selection: qualification gates first, then a weighted comparison of discrimination, calibration, high-precision recall, and business value.")
+        st.warning("Deployment is never automatic in this prototype. A developer must explicitly approve the Candidate.")
+        confirm = st.checkbox(f"I reviewed {candidate_model.get('display_name')} and approve deployment to Production.")
         if st.button("Promote Candidate to Production", type="primary", disabled=not confirm, use_container_width=True):
             try:
-                active = promote_registered_model(candidate_model["model_id"])
-                st.success(f"Production is now **{active.get('model_display_name')}** · `{active.get('model_version')}`.")
+                deployed = promote_registered_model(candidate_model["model_id"])
+                st.success(f"Production is now **{deployed.get('model_display_name')}** · `{deployed.get('model_version')}`.")
                 st.rerun()
             except Exception as exc:
                 st.error(f"Deployment failed: {exc}")
                 st.exception(exc)
 
 st.divider()
-st.markdown("### Train or retrain in Google Colab")
+st.markdown("### Prototype retraining settings")
 st.caption(
-    "The notebook runs the complete computational workflow: prepare data, train five models, track every run in MLflow, "
-    "apply qualification gates, select the best qualified candidate, and export a candidate package. Random Forest and Extra Trees use CPU; "
-    "LightGBM and XGBoost prefer the Colab GPU and fall back to CPU if needed."
+    "These settings control whether a new dataset or sustained model degradation starts retraining directly inside the app. "
+    "The prototype trains Logistic Regression, Random Forest, Extra Trees, LightGBM, and XGBoost, tracks them in MLflow, and registers only the best qualified model as Candidate."
 )
-
-colab_url = ordinary_colab_url()
-left, right = st.columns(2)
-if colab_url:
-    left.link_button("Open Training Workflow in Colab", colab_url, use_container_width=True)
-elif NOTEBOOK_PATH.exists():
-    left.download_button(
-        "Download Colab Training Notebook",
-        NOTEBOOK_PATH.read_bytes(),
-        file_name="end_to_end_ml_workflow.ipynb",
-        mime="application/x-ipynb+json",
-        use_container_width=True,
+settings = retraining.load_retraining_settings()
+with st.form("retraining_settings_form"):
+    automatic = st.toggle(
+        "Automatically retrain when new data or sustained degradation creates a retraining request",
+        value=bool(settings.get("automatic_retraining_enabled", True)),
     )
-else:
-    left.button("Training notebook unavailable", disabled=True, use_container_width=True)
+    scope_label = st.radio(
+        "Training workload",
+        ["Fast prototype", "Full active dataset"],
+        index=0 if settings.get("training_scope") == "fast_prototype" else 1,
+        help="Fast prototype samples across the full timeline to keep the five-model workflow practical on Streamlit CPU. Full active dataset can take considerably longer.",
+    )
+    max_rows = st.number_input(
+        "Maximum orders in Fast prototype mode",
+        min_value=10_000,
+        max_value=150_000,
+        value=int(settings.get("max_training_rows", 60_000)),
+        step=10_000,
+        disabled=scope_label == "Full active dataset",
+    )
+    st.caption("Deployment policy is fixed: retraining may create a Candidate automatically, but only a developer can promote it to Production.")
+    if st.form_submit_button("Save retraining settings", use_container_width=True):
+        settings = retraining.save_retraining_settings({
+            "automatic_retraining_enabled": automatic,
+            "training_scope": "fast_prototype" if scope_label == "Fast prototype" else "full_dataset",
+            "max_training_rows": int(max_rows),
+        })
+        st.success("Retraining settings saved.")
 
-cfg = colab_enterprise_configuration()
-if cfg.get("configured"):
-    if right.button("Trigger Colab Enterprise Retraining", use_container_width=True):
+st.divider()
+st.markdown("### Run retraining now")
+try:
+    versions = retraining.list_dataset_versions()
+except Exception as exc:
+    versions = []
+    st.warning(f"Dataset versions could not be loaded: {exc}")
+
+if versions:
+    version_ids = [v["dataset_version"] for v in versions]
+    selected_version = st.selectbox(
+        "Dataset version",
+        version_ids,
+        format_func=lambda vid: next(
+            (
+                f"{v['dataset_version']} · {v['order_count']:,} orders" + (" · active" if v.get("active") else "")
+                for v in versions if v["dataset_version"] == vid
+            ),
+            vid,
+        ),
+    )
+    active_settings = retraining.load_retraining_settings()
+    if active_settings.get("training_scope") == "fast_prototype":
+        st.info(
+            f"This run will train all five models directly in the app using up to {int(active_settings['max_training_rows']):,} time-spanning orders. "
+            "This is the recommended prototype mode for Streamlit CPU."
+        )
+    else:
+        st.warning("Full-dataset mode is selected. Training all five models can take several minutes on a CPU-only Streamlit deployment.")
+
+    if st.button("Run Five-Model Retraining Now", type="primary", use_container_width=True):
+        result = run_training_with_ui(dataset_version=selected_version)
+        if result and result.get("status") == "CANDIDATE_READY":
+            st.success(f"Candidate ready: `{result.get('metadata', {}).get('candidate_model_id', 'selected model')}`. Review it above before deployment.")
+            st.rerun()
+else:
+    st.info("No versioned dataset is currently available for retraining.")
+
+with st.expander("Optional heavy-compute notebook", expanded=False):
+    st.caption(
+        "The main prototype no longer requires Colab. This notebook is kept as an optional utility if you later want to run the same five-model workflow on a separate compute environment."
+    )
+    colab_url = retraining.ordinary_colab_url()
+    if colab_url:
+        st.link_button("Open optional training notebook in Colab", colab_url, use_container_width=True)
+    elif NOTEBOOK_PATH.exists():
+        st.download_button(
+            "Download optional Colab notebook",
+            NOTEBOOK_PATH.read_bytes(),
+            file_name="end_to_end_ml_workflow.ipynb",
+            mime="application/x-ipynb+json",
+            use_container_width=True,
+        )
+    uploaded = st.file_uploader(
+        "Import Candidate package from the optional notebook",
+        type=["zip"],
+        help="Importing a candidate package never deploys it automatically.",
+    )
+    if uploaded and st.button("Register Imported Candidate", use_container_width=True):
         try:
-            result = trigger_colab_enterprise()
-            st.success("Colab Enterprise notebook execution was submitted.")
-            st.json(result)
+            imported = import_candidate_package(uploaded.getvalue())
+            st.success(f"Registered **{imported.get('display_name', imported.get('model_family'))}** as Candidate. Production is unchanged.")
+            st.rerun()
         except Exception as exc:
-            st.error(str(exc))
-else:
-    right.button("Colab Enterprise: not configured", disabled=True, use_container_width=True)
-    st.caption("Optional production path: configure the COLAB_ENTERPRISE_* environment variables and Google Cloud credentials to enable automatic notebook execution.")
-
-uploaded = st.file_uploader("Import candidate package produced by Colab", type=["zip"], help="Upload the candidate_package__*.zip created by the notebook. Importing registers the candidate but does not deploy it.")
-if uploaded and st.button("Register Imported Candidate", use_container_width=True):
-    try:
-        imported = import_candidate_package(uploaded.getvalue())
-        st.success(f"Registered **{imported.get('display_name', imported.get('model_family'))}** as Candidate. Production is unchanged.")
-        st.rerun()
-    except Exception as exc:
-        st.error(f"Candidate import failed: {exc}")
-        st.exception(exc)
+            st.error(f"Candidate import failed: {exc}")
+            st.exception(exc)
 
 st.markdown("### Retraining requests")
-requests = list_retraining_requests()
+requests = retraining.list_retraining_requests()
 if not requests:
-    st.caption("No monitoring-triggered retraining requests are open.")
+    st.caption("No retraining requests have been created yet.")
 else:
     req = pd.DataFrame(requests)
-    keep = [c for c in ["created_at", "request_id", "trigger_type", "model_version", "dataset_version", "status"] if c in req.columns]
+    keep = [c for c in ["created_at", "request_id", "source", "trigger_type", "model_version", "dataset_version", "status", "training_backend"] if c in req.columns]
     st.dataframe(req[keep].sort_values("created_at", ascending=False), use_container_width=True, hide_index=True)
+    queued = next((r for r in reversed(requests) if r.get("status") == "RETRAINING_REQUIRED"), None)
+    if queued:
+        st.info(f"Queued request `{queued['request_id']}` is waiting for retraining on dataset `{queued.get('dataset_version')}`.")
+        if st.button("Run Latest Queued Request Now", use_container_width=True):
+            result = run_training_with_ui(request=queued)
+            if result and result.get("status") == "CANDIDATE_READY":
+                st.success("The queued request produced a Candidate. Review it above before deployment.")
+                st.rerun()

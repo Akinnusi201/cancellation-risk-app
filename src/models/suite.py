@@ -1,7 +1,7 @@
 """Reproducible multi-model training used by the Colab workflow.
 
 The Streamlit app does not call this module during normal startup. It is designed for
-Google Colab / Colab Enterprise or an explicit developer training job.
+the Streamlit prototype, Google Colab, or another explicit developer training job.
 """
 
 from __future__ import annotations
@@ -270,7 +270,7 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
         display = DISPLAY_NAMES[family]
         run_name = f"{family}__{stamp}"
         if progress:
-            progress("train", (idx - 1) / len(specs), f"Training {display}")
+            progress(f"train_{family}", 0.05, f"Training {display} ({idx} of {len(specs)})")
         started = time.perf_counter()
         prep = log_prep if family == "logistic_regression" else tree_prep
         Xtr_t = Xtr_log if family == "logistic_regression" else Xtr_tree
@@ -284,6 +284,9 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
             run = None
         try:
             estimator, device = _fit_with_gpu_fallback(estimator, Xtr_t, ytr, family, config.use_gpu)
+            if progress:
+                progress(f"train_{family}", 1.0, f"Finished fitting {display} on {device}")
+                progress(f"evaluate_{family}", 0.20, f"Evaluating {display} on validation and held-out test data")
             pipeline = Pipeline([("prep", prep), ("model", estimator)])
             pv = estimator.predict_proba(Xv_t)[:, 1]
             pt = estimator.predict_proba(Xt_t)[:, 1]
@@ -291,6 +294,8 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
             vm = metrics(yv, pv, threshold)
             tm = metrics(yt, pt, threshold)
             bm = evaluate_business_policy(yt.to_numpy(), pt, policy)
+            if progress:
+                progress(f"evaluate_{family}", 1.0, f"{display}: ROC-AUC {tm['roc_auc']:.3f}, PR-AUC {tm['pr_auc']:.3f}, Brier {tm['brier']:.3f}")
             duration = time.perf_counter() - started
 
             model_dir = output / run_name
@@ -349,9 +354,9 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
         finally:
             if run_cm:
                 run_cm.__exit__(None, None, None)
-        if progress:
-            progress("train", idx / len(specs), f"Finished {display}")
 
+    if progress:
+        progress("select_candidate", 0.25, "Applying qualification gates across all five models")
     candidate = select_candidate(results, gates)
     if candidate:
         candidate["status"] = "CANDIDATE"
@@ -360,6 +365,11 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
             "selection_score": candidate.get("selection_score"),
             "gates": gates,
         }
+    if progress:
+        if candidate:
+            progress("select_candidate", 1.0, f"Selected {candidate['display_name']} as the best qualified Candidate")
+        else:
+            progress("select_candidate", 1.0, "No model passed all qualification gates")
 
     if mlflow:
         try:
@@ -379,6 +389,8 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
     historical = test_df.sample(n=min(2_500, len(test_df)), random_state=config.random_seed)
     candidate_package = None
     if candidate:
+        if progress:
+            progress("package_candidate", 0.15, "Packaging the selected Candidate and its support artifacts")
         cand_dir = output / candidate["model_id"]
         cand_preds = pd.read_csv(cand_dir / "test_predictions.csv.gz")
         live = build_balanced_live_queue(test_df, cand_preds["probability"].to_numpy(), max_rows=min(2_400, len(test_df)))
@@ -392,6 +404,8 @@ def train_model_suite(snapshot: pd.DataFrame, config: SuiteConfig, progress=None
                 path = cand_dir / filename
                 if path.exists():
                     zf.write(path, arcname=f"candidate/{filename}")
+        if progress:
+            progress("package_candidate", 1.0, "Candidate package is ready for registry handoff")
 
     summary = {
         "experiment_name": experiment_name,

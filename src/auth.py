@@ -63,6 +63,8 @@ def logout_button() -> None:
             "role",
             "username",
             "queue_index",
+            "live_queue_index",
+            "historical_queue_index",
             "current_score",
             "decision_made",
             "sim_score_key",
