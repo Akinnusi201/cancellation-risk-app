@@ -189,3 +189,9 @@
 - Added explicit governance overrides for models that fail qualification gates or predate the validation-only selection contract.
 - Candidate promotion metadata now carries split/fingerprint/schema and validation/test business evidence.
 - Added regression tests proving Candidate selection does not use the final test holdout.
+
+## v4.4.1 - Config compatibility hotfix
+
+- Made the five-model training suite compatible with pre-v4.4 `src/config.py` files that do not define `FEATURE_SCHEMA_VERSION`.
+- The suite now falls back to `order_features_v1` during partial/rolling deployments instead of crashing the MLflow Experiments page at import time.
+- Added regression coverage for the compatibility contract.

@@ -33,7 +33,15 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from src.business import DEFAULT_POLICY
 from src.business_evaluation import evaluate_business_policy
-from src.config import CATEGORICAL_FEATURES, FEATURES, FEATURE_SCHEMA_VERSION, NUMERIC_FEATURES, RANDOM_STATE
+from src.config import CATEGORICAL_FEATURES, FEATURES, NUMERIC_FEATURES, RANDOM_STATE
+
+# FEATURE_SCHEMA_VERSION was introduced in v4.4.  Keep the training suite
+# import-compatible with older deployed config.py files during rolling/partial
+# upgrades so the Experiments page does not crash before Streamlit can render.
+try:
+    from src.config import FEATURE_SCHEMA_VERSION
+except ImportError:  # compatibility with pre-v4.4 config.py
+    FEATURE_SCHEMA_VERSION = "order_features_v1"
 from src.models.evaluate import best_f1_threshold, metrics
 from src.simulation import build_balanced_live_queue
 

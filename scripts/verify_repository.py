@@ -49,6 +49,7 @@ check("First-deployment README", all(x in readme_text for x in ["What problem do
 check("Experiments GUI", "Experiment Runs" in experiments_text and "Compare Models" in experiments_text and "MLflow Tracking" in experiments_text, "plain-language MLflow-style interface")
 check("Manual tuned experiments", all(x in experiments_text for x in ["Run Experiment", "Tune parameters", "run_manual_experiment", "Mark latest experiment as Candidate"]) and "train_single_model_experiment" in suite_text and "run_manual_experiment" in retraining_text, "in-app developer tuning + MLflow tracking")
 check("Validation-only candidate selection", "test_holdout_role" in suite_text and "selection_split" in suite_text and "_selection_evidence" in suite_text, "test holdout excluded from candidate ranking")
+check("Feature schema compatibility", "except ImportError" in suite_text and 'FEATURE_SCHEMA_VERSION = "order_features_v1"' in suite_text, "pre-v4.4 config.py does not crash suite import")
 check("Final fair benchmark", (ROOT / "artifacts/final_benchmark/benchmark_summary.json").exists() and (ROOT / "artifacts/final_benchmark/benchmark_comparison.csv").exists(), "full-data five-model evidence")
 if (ROOT / "artifacts/final_benchmark/benchmark_summary.json").exists():
     benchmark = json.loads((ROOT / "artifacts/final_benchmark/benchmark_summary.json").read_text())
