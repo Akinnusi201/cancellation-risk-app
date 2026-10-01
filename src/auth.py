@@ -15,20 +15,34 @@ def _sign_in_as(role: str) -> None:
 
 def login_screen() -> None:
     """Passwordless role-selection landing page for this deployment."""
-    st.title("Profit-Aware Order Cancellation Risk")
-    st.caption("Group 10 • Select the workspace you want to enter")
+    st.markdown(
+        """
+        <div class="cr-login-wrap">
+          <div class="cr-login-hero">
+            <div class="cr-login-mark">↗</div>
+            <h1>Profit-Aware Cancellation Risk</h1>
+            <p>Profit-aware order cancellation risk for e-commerce operations. Choose a workspace to enter the system.</p>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    st.write("")
     left, right = st.columns(2, gap="large")
 
     with left:
-        st.subheader("📦 Operations Manager")
-        st.write(
-            "Score incoming orders, review profit-aware intervention recommendations, "
-            "and record operational decisions."
+        st.markdown(
+            """
+            <div class="cr-role-card">
+              <div class="cr-role-icon">📦</div>
+              <h3>Operations Manager</h3>
+              <p>Review incoming orders, see cancellation risk and expected value, then release orders or keep them for verification.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
         if st.button(
-            "Enter Operations Workspace",
+            "📦  Enter Operations Workspace",
             type="primary",
             use_container_width=True,
             key="login_manager",
@@ -36,28 +50,33 @@ def login_screen() -> None:
             _sign_in_as("manager")
 
     with right:
-        st.subheader("🛠️ Developer")
-        st.write(
-            "Manage DataOps, review the model registry and MLflow experiments, "
-            "monitor performance, and promote approved models."
+        st.markdown(
+            """
+            <div class="cr-role-card">
+              <div class="cr-role-icon">🛠️</div>
+              <h3>Developer</h3>
+              <p>Manage DataOps, run MLflow experiments, compare models, monitor production health, retrain, and control deployment.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
         if st.button(
-            "Enter Developer Workspace",
+            "🛠️  Enter Developer Workspace",
             use_container_width=True,
             key="login_developer",
         ):
             _sign_in_as("developer")
 
-    st.info(
-        "This deployment uses passwordless role selection for the course environment. "
-        "Operations and Developer pages are still registered separately so each workspace only exposes the tools intended for that role."
+    st.markdown(
+        '<div class="cr-login-note">Course deployment · Passwordless role selection · Workspaces are still isolated by role-specific navigation and page guards.</div>',
+        unsafe_allow_html=True,
     )
 
 
 def logout_button() -> None:
     label = ROLES.get(st.session_state.get("role"), "User")
-    st.sidebar.caption(f"Workspace: **{label}**")
-    if st.sidebar.button("Sign out", use_container_width=True):
+    st.sidebar.caption(f"Signed in as **{label}**")
+    if st.sidebar.button("↩️  Sign out", use_container_width=True):
         for key in [
             "authenticated",
             "role",

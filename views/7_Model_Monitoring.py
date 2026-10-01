@@ -236,10 +236,7 @@ def business_policy_controls(key_prefix="policy"):
 
 
 require_role("developer")
-st.title("📈 Model Monitoring")
-st.caption(
-    "Monitor production behavior, inference latency, pipeline reliability, drift, technical performance, and estimated business value."
-)
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">DEVELOPER · PRODUCTION HEALTH</div><h1>📈&nbsp; Model Monitoring</h1><p>Watch inference health, drift, business impact, labeled performance feedback, and retraining signals for the deployed model.</p></div>""", unsafe_allow_html=True)
 fx = currency_caption()
 fx_rate = float(fx["rate"])
 
@@ -275,12 +272,12 @@ if not eval_dir.is_absolute():
 predictions_path = eval_dir / "test_predictions.csv.gz"
 
 runtime_tab, drift_tab, business_tab, evaluation_tab, retraining_tab, candidate_tab = st.tabs([
-    "Runtime Health",
-    "Drift",
-    "Business Impact",
-    "Model Evaluation",
-    "Retraining",
-    "Model Registry",
+    "⚡ Runtime Health",
+    "🌊 Drift",
+    "💵 Business Impact",
+    "🎯 Model Evaluation",
+    "🔁 Retraining",
+    "🗂️ Model Registry",
 ])
 
 MODE_LABELS = {
@@ -313,7 +310,7 @@ def _traffic_population_table(mode_counts):
 
 
 with runtime_tab:
-    st.subheader("Production inference")
+    st.subheader("⚡ Production inference")
     runtime_predictions, runtime = runtime_prediction_summary(meta.get("model_version"))
 
     total = int(runtime.get("total_predictions", 0))
@@ -366,7 +363,7 @@ with runtime_tab:
         st.dataframe(display, use_container_width=True, hide_index=True)
 
 with drift_tab:
-    st.subheader("Prediction drift")
+    st.subheader("🌊 Prediction drift")
     runtime_predictions, runtime = runtime_prediction_summary(meta.get("model_version"))
     eligible = int(runtime.get("eligible_predictions", 0))
     excluded = int(runtime.get("excluded_predictions", 0))
@@ -423,7 +420,7 @@ with drift_tab:
             st.caption("Numeric features use PSI. Categorical features use total-variation distance. These thresholds are application monitoring heuristics, not universal statistical cutoffs.")
 
 with business_tab:
-    st.subheader("Operations business impact")
+    st.subheader("💵 Operations business impact")
     business_settings = retraining.load_retraining_settings()
     include_demo_business = bool(business_settings.get("include_demo_business_impact", True))
     if include_demo_business:
@@ -520,7 +517,7 @@ with business_tab:
 
 
 with evaluation_tab:
-    st.subheader("Packaged production evaluation")
+    st.subheader("🎯 Packaged production evaluation")
 
     st.markdown("#### Historical business backtest")
     st.caption(
@@ -645,7 +642,7 @@ with evaluation_tab:
         st.bar_chart(x)
 
 with retraining_tab:
-    st.subheader("Performance feedback and retraining policy")
+    st.subheader("🔁 Performance feedback and retraining policy")
     st.caption(
         "Drift is an early warning. Confirmed performance degradation uses real final outcomes when they become available. "
         "A retraining request can be created automatically, but deployment still requires developer approval."
@@ -666,7 +663,7 @@ with retraining_tab:
                     "completed": "Completed", "complete": "Completed", "canceled": "Canceled", "cancelled": "Canceled"
                 })
                 clean = clean.dropna().drop_duplicates("order_id", keep="last")
-                if st.button("Apply Outcome Feedback", use_container_width=True):
+                if st.button("✅ Apply Outcome Feedback", use_container_width=True):
                     with connect() as con:
                         con.executemany(
                             "UPDATE predictions SET actual_outcome = ? WHERE order_id = ?",
@@ -777,7 +774,7 @@ with retraining_tab:
         st.dataframe(req[cols].sort_values("created_at", ascending=False), use_container_width=True, hide_index=True)
 
 with candidate_tab:
-    st.subheader("Registered model history")
+    st.subheader("🗂️ Registered model history")
     models = list_registered_models()
     if models:
         rows = []

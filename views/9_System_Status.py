@@ -10,7 +10,7 @@ from src.models.benchmark import load_final_benchmark, load_final_benchmark_tabl
 import src.retraining as retraining
 
 require_role("developer")
-st.title("⚙️ System Status")
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">DEVELOPER · PLATFORM HEALTH</div><h1>⚙️&nbsp; System Status</h1><p>Confirm deployment readiness, automation settings, packaged evidence, dependencies, and recent system events.</p></div>""", unsafe_allow_html=True)
 meta = active_metadata()
 latest = dataframe("SELECT dataset_version, created_at FROM dataset_versions ORDER BY created_at DESC LIMIT 1")
 last_event = dataframe("SELECT created_at,event_type,status,message FROM system_events ORDER BY created_at DESC LIMIT 10")
@@ -37,7 +37,7 @@ for c, (k, v) in zip(cols, items):
 st.success("App startup loads the packaged Production model. It does not retrain on startup.")
 st.caption(f"Runtime MLflow backend: {MLFLOW_TRACKING_URI}")
 
-st.subheader("DevOps Readiness")
+st.subheader("🛠️ DevOps Readiness")
 a, b, c = st.columns(3)
 a.metric("Automated CI", "Configured" if workflow_files else ("Packaged, not installed" if ci_template.exists() else "Missing"))
 b.metric("Docker Image", "Configured" if dockerfile.exists() else "Missing")
@@ -58,13 +58,13 @@ else:
     )
     if ci_template.exists():
         st.download_button(
-            "Download GitHub Actions workflow",
+            "⬇️ Download GitHub Actions workflow",
             data=ci_template.read_bytes(),
             file_name="ci.yml",
             mime="text/yaml",
         )
 
-st.subheader("Training & Automation")
+st.subheader("🔁 Training & Automation")
 settings = retraining.load_retraining_settings()
 a1, a2, a3, a4, a5 = st.columns(5)
 a1.metric("Starter Model Suite", f"{len(registry_models)} models" if registry_models else "Missing")
@@ -90,7 +90,7 @@ if requests:
         f"{latest_request.get('dataset_version')}"
     )
 
-st.subheader("Final Computational Evidence")
+st.subheader("🏁 Final Computational Evidence")
 benchmark = load_final_benchmark()
 benchmark_table = load_final_benchmark_table()
 if benchmark:
@@ -117,7 +117,7 @@ except Exception:
 st.caption(f"MLflow runtime dependency: **{mlflow_state}** · configured backend: `{MLFLOW_TRACKING_URI}`")
 
 
-st.subheader("Recent System Events")
+st.subheader("🕒 Recent System Events")
 if len(last_event):
     st.dataframe(last_event, use_container_width=True, hide_index=True)
 else:

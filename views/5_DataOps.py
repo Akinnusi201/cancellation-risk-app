@@ -12,8 +12,7 @@ from src.models.registry import active_metadata
 import src.retraining as retraining
 
 require_role("developer")
-st.title("📦 DataOps")
-st.caption("Ingest → validate → quarantine → aggregate → version → optional retraining handoff. DataOps never changes Production directly.")
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">DEVELOPER · DATAOPS</div><h1>📦&nbsp; DataOps</h1><p>Turn raw item-level batches into validated, quarantined, reproducible order-level dataset versions ready for model training.</p></div>""", unsafe_allow_html=True)
 st.info("The Pakistan baseline is already packaged as an order-level dataset version. Upload only new batches here.")
 
 STEPS = {
@@ -38,13 +37,13 @@ def step_for_message(message):
     if any(x in m for x in ["saving cleaned", "dataset version stored"]): return 7
     return 1
 
-with st.expander("DataOps controls and checks"):
+with st.expander("🧭 DataOps controls and checks"):
     for n, (title, explanation) in STEPS.items():
         st.markdown(f"**{n}. {title}**  \n{explanation}")
 
 sample_path = ROOT / "demo_batch.csv"
 if sample_path.exists():
-    st.download_button("Download safe demo batch", sample_path.read_bytes(), "demo_batch.csv", "text/csv")
+    st.download_button("⬇️ Download safe demo batch", sample_path.read_bytes(), "demo_batch.csv", "text/csv")
 
 up = st.file_uploader("Upload a new item-level CSV batch", type=["csv"])
 if "last_upload_key" not in st.session_state:
@@ -133,7 +132,7 @@ if up is not None:
 result = st.session_state.last_pipeline_result
 if result and result.get("status") == "success":
     st.divider()
-    st.subheader("Latest DataOps Result")
+    st.subheader("✅ Latest DataOps Result")
     a, b, c, d = st.columns(4)
     a.metric("Source rows", f"{result['raw_rows']:,}")
     b.metric("Valid item rows", f"{result['valid_rows']:,}")
@@ -142,7 +141,7 @@ if result and result.get("status") == "success":
     st.dataframe(pd.DataFrame(result["checks"], columns=["Check", "Status", "Affected Rows", "Details"]), use_container_width=True, hide_index=True)
 
 st.divider()
-st.subheader("Dataset Version History")
+st.subheader("🗂️ Dataset Version History")
 versions = dataframe(
     "SELECT dataset_version, created_at, row_count, order_count, processed_path, quarantine_path, report_path, active "
     "FROM dataset_versions ORDER BY created_at DESC"
@@ -153,9 +152,9 @@ if len(versions):
     r = versions[versions["dataset_version"] == chosen].iloc[0]
     cols = st.columns(3)
     for col, path_col, label, mime in [
-        (cols[0], "processed_path", "Download cleaned Parquet", "application/octet-stream"),
-        (cols[1], "quarantine_path", "Download quarantine CSV", "text/csv"),
-        (cols[2], "report_path", "Download validation JSON", "application/json"),
+        (cols[0], "processed_path", "⬇️ Cleaned Parquet", "application/octet-stream"),
+        (cols[1], "quarantine_path", "⬇️ Quarantine CSV", "text/csv"),
+        (cols[2], "report_path", "⬇️ Validation JSON", "application/json"),
     ]:
         p = Path(r[path_col])
         if p.exists():

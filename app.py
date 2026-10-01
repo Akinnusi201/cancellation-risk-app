@@ -3,12 +3,23 @@ import streamlit as st
 from src.auth import login_screen, logout_button
 from src.bootstrap import initialize_runtime
 
+try:
+    from src.ui.theme import apply_app_theme, render_sidebar_brand
+except Exception:
+    apply_app_theme = lambda: None
+    render_sidebar_brand = lambda workspace=None: None
+
 st.set_page_config(
-    page_title="Cancellation Risk Operations",
-    page_icon="🛒",
+    page_title="Cancellation Risk ML",
+    page_icon="↗️",
     layout="wide",
     initial_sidebar_state="auto",
+    menu_items={
+        "About": "Cancellation Risk ML · Profit-aware e-commerce cancellation risk · Group 10",
+    },
 )
+
+apply_app_theme()
 
 
 def login_page():
@@ -54,6 +65,7 @@ else:
             st.session_state.pop(key, None)
         st.rerun()
 
+    render_sidebar_brand("Operations workspace" if role == "manager" else "Developer workspace")
     logout_button()
     pg = st.navigation(pages, position="sidebar")
     pg.run()

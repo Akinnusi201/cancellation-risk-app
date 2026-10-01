@@ -10,11 +10,7 @@ from src.models.suite import DISPLAY_NAMES, model_parameter_defaults
 import src.retraining as retraining
 
 require_role("developer")
-st.title("🧪 Experiments & MLflow")
-st.caption(
-    "Tune and run a model directly in the app, compare reproducible runs, and inspect MLflow tracking. "
-    "Manual experiments are registered as Ready and never change Production automatically."
-)
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">DEVELOPER · EXPERIMENTATION</div><h1>🧪&nbsp; Experiments & MLflow</h1><p>Tune models, run reproducible experiments, compare evidence, and track parameters and metrics without changing Production automatically.</p></div>""", unsafe_allow_html=True)
 
 
 def _run_progress():
@@ -109,11 +105,11 @@ def _hyperparameter_controls(family):
 
 
 run_tab, runs_tab, compare_tab, benchmark_tab, tracking_tab = st.tabs([
-    "Run Experiment", "Experiment Runs", "Compare Models", "Final Benchmark", "MLflow Tracking"
+    "▶️ Run Experiment", "🧾 Experiment Runs", "⚖️ Compare Models", "🏁 Final Benchmark", "📚 MLflow Tracking"
 ])
 
 with run_tab:
-    st.subheader("Manual experiment")
+    st.subheader("🎛️ Manual experiment")
     st.write(
         "Use this when you want to test a model configuration yourself. Choose a versioned dataset, tune a few useful parameters, "
         "and run it immediately. The resulting run is tracked in MLflow and added to the registry as **Ready**."
@@ -164,7 +160,7 @@ with run_tab:
         st.caption("Only the most useful parameters are exposed here so the experiment screen stays understandable.")
         hyperparameters = _hyperparameter_controls(family)
 
-        if st.button(f"Run {DISPLAY_NAMES[family]} Experiment", type="primary", use_container_width=True):
+        if st.button(f"▶️ Run {DISPLAY_NAMES[family]} Experiment", type="primary", use_container_width=True):
             progress, stage_slot, progress_slot, detail_slot = _run_progress()
             try:
                 result = retraining.run_manual_experiment(
@@ -212,13 +208,13 @@ with run_tab:
                             "Override failed qualification gates for this experiment",
                             key=f"manual_candidate_override_{latest['model_id']}",
                         )
-                    if st.button("Mark latest experiment as Candidate", use_container_width=True, disabled=not allow):
+                    if st.button("⭐ Mark latest experiment as Candidate", use_container_width=True, disabled=not allow):
                         set_candidate(latest["model_id"], "Developer selected tuned manual experiment", latest.get("qualification", {}))
                         st.success("The experiment is now Candidate. Production is unchanged until explicit promotion in Model Registry.")
                         st.rerun()
 
 with runs_tab:
-    st.subheader("Registered experiment runs")
+    st.subheader("🧾 Registered experiment runs")
     st.caption("Each row is one reproducible trained model. Production, Candidate, and Ready are lifecycle statuses.")
     models = list_registered_models()
     if not models:
@@ -260,7 +256,7 @@ with runs_tab:
             st.json(record.get("reproducibility", {}))
 
 with compare_tab:
-    st.subheader("Model comparison")
+    st.subheader("⚖️ Model comparison")
     models = list_registered_models()
     if len(models) < 2:
         st.info("At least two registered models are required for comparison.")
@@ -288,7 +284,7 @@ with compare_tab:
             st.info("Higher ROC-AUC, PR-AUC, F1, precision, recall, and fixed-precision recall are better. Lower Brier score means better probability calibration.")
 
 with benchmark_tab:
-    st.subheader("Final fair five-model benchmark")
+    st.subheader("🏁 Final fair five-model benchmark")
     st.write(
         "This benchmark is the report-ready comparison. All five model families use the **same complete dataset**, "
         "the same deterministic temporal split, the same feature schema, and the same business assumptions. "
@@ -373,7 +369,7 @@ with benchmark_tab:
             ), vid),
         )
         benchmark_gpu = st.toggle("Prefer GPU for LightGBM/XGBoost", value=True, key="benchmark_prefer_gpu")
-        if st.button("Run Full Five-Model Benchmark", use_container_width=True):
+        if st.button("🏁 Run Full Five-Model Benchmark", use_container_width=True):
             progress, stage_slot, progress_slot, detail_slot = _run_progress()
             try:
                 result = retraining.run_final_benchmark(benchmark_version, prefer_gpu=benchmark_gpu, progress=progress)
@@ -391,7 +387,7 @@ with benchmark_tab:
 
 
 with tracking_tab:
-    st.subheader("MLflow tracking store")
+    st.subheader("📚 MLflow tracking store")
     st.caption(f"Configured tracking URI: `{MLFLOW_TRACKING_URI}`")
     try:
         import mlflow

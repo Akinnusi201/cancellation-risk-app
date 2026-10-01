@@ -16,11 +16,7 @@ from src.models.registry import (
 import src.retraining as retraining
 
 require_role("developer")
-st.title("🤖 Model Registry & Deployment")
-st.caption(
-    "Compare trained models, retrain the five-model suite on versioned data, review the selected Candidate, and control production deployment. "
-    "The application supports full-dataset retraining directly in the Developer workspace; quick sampled runs are optional."
-)
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">DEVELOPER · MODELOPS</div><h1>🤖&nbsp; Model Registry & Deployment</h1><p>Compare trained models, govern Candidate status, run five-model retraining, and deploy only after explicit developer approval.</p></div>""", unsafe_allow_html=True)
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK_PATH = ROOT / "notebooks" / "end_to_end_ml_workflow.ipynb"
@@ -29,12 +25,12 @@ NOTEBOOK_PATH = ROOT / "notebooks" / "end_to_end_ml_workflow.ipynb"
 def plain_health(model):
     m = model.get("test_metrics", {})
     if not m:
-        return "No metrics"
+        return "⚪ No metrics"
     if m.get("roc_auc", 0) >= 0.90 and m.get("brier", 1) <= 0.12:
-        return "Strong"
+        return "🟢 Strong"
     if m.get("roc_auc", 0) >= 0.82 and m.get("brier", 1) <= 0.20:
-        return "Good"
-    return "Needs review"
+        return "🔵 Good"
+    return "🟠 Needs review"
 
 
 def run_training_with_ui(request=None, dataset_version=None):
@@ -89,7 +85,7 @@ c1.metric("Production", active.get("model_display_name") or str(active.get("mode
 c2.metric("Production Version", str(active.get("model_version", "n/a")))
 c3.metric("Candidate", candidate.get("model_id") if candidate else "None")
 
-st.markdown("### Model registry")
+st.markdown("### 📚 Model registry")
 st.caption(
     "**Production** is scoring orders now. **Candidate** is the proposed replacement. "
     "**Ready** models are trained comparison models. Retraining never changes Production automatically."
@@ -103,13 +99,13 @@ else:
         bm = model.get("business_metrics", {})
         rows.append({
             "Model": model.get("display_name"),
-            "Status": model.get("status", "READY"),
+            "Status": {"PRODUCTION": "🟢 Production", "CANDIDATE": "🟣 Candidate", "READY": "⚪ Ready"}.get(model.get("status", "READY"), model.get("status", "READY").title()),
             "Health": plain_health(model),
             "ROC-AUC": tm.get("roc_auc"),
             "PR-AUC": tm.get("pr_auc"),
             "Brier": tm.get("brier"),
             "Recall @ 90% precision": tm.get("recall_at_90_precision"),
-            "Qualification": "Passed" if model.get("qualification", {}).get("passed") else ("Not evaluated" if not model.get("qualification") else "Needs review"),
+            "Qualification": "✅ Passed" if model.get("qualification", {}).get("passed") else ("⚪ Not evaluated" if not model.get("qualification") else "⚠️ Needs review"),
             "Est. savings / 1,000": format_usd(bm.get("net_savings_per_1000_orders", 0.0), float(fx["rate"])) if bm.get("net_savings_per_1000_orders") is not None else "n/a",
             "Training": model.get("training_device", "CPU"),
             "Scope": "Full dataset" if model.get("training_scope") in {None, "full_dataset"} else ("Quick sample" if model.get("training_scope") in {"quick_sample", "fast_prototype"} else str(model.get("training_scope"))),
@@ -154,13 +150,13 @@ else:
                 "Allow this legacy packaged model to be nominated as Candidate.",
                 key=f"legacy_candidate_{selected_id}",
             )
-        if st.button("Mark selected model as Candidate", use_container_width=True, disabled=not allow_candidate):
+        if st.button("⭐ Mark selected model as Candidate", use_container_width=True, disabled=not allow_candidate):
             set_candidate(selected_id, "Developer selected model from registry", qualification)
             st.success(f"{selected.get('display_name')} is now the Candidate. Production has not changed.")
             st.rerun()
 
 st.divider()
-st.markdown("### Candidate review and deployment")
+st.markdown("### 🚀 Candidate review and deployment")
 candidate = candidate_metadata()
 if not candidate:
     st.info("There is no active Candidate. Retraining can select one automatically, or you can mark a Ready model as Candidate above.")
@@ -188,7 +184,7 @@ else:
         else:
             st.warning("Deployment is never automatic. A developer must explicitly approve the Candidate.")
         confirm = st.checkbox(f"I reviewed {candidate_model.get('display_name')} and approve deployment to Production.")
-        if st.button("Promote Candidate to Production", type="primary", disabled=not confirm, use_container_width=True):
+        if st.button("🚀 Promote Candidate to Production", type="primary", disabled=not confirm, use_container_width=True):
             try:
                 deployed = promote_registered_model(candidate_model["model_id"])
                 st.success(f"Production is now **{deployed.get('model_display_name')}** · `{deployed.get('model_version')}`.")
@@ -198,7 +194,7 @@ else:
                 st.exception(exc)
 
 st.divider()
-st.markdown("### Retraining settings")
+st.markdown("### ⚙️ Retraining settings")
 st.caption(
     "These settings control whether a new dataset or sustained model degradation starts retraining directly inside the app. "
     "The workflow trains Logistic Regression, Random Forest, Extra Trees, LightGBM, and XGBoost, tracks every run in MLflow, and registers only the best qualified model as Candidate."
@@ -234,7 +230,7 @@ with st.form("retraining_settings_form"):
         help="Turn this off when you want Business Impact to reflect only manual/batch production-like orders. Demo traffic is always excluded from drift monitoring.",
     )
     st.caption("Deployment policy is fixed: retraining may create a Candidate automatically, but only a developer can promote it to Production.")
-    if st.form_submit_button("Save retraining settings", use_container_width=True):
+    if st.form_submit_button("💾 Save retraining settings", use_container_width=True):
         settings = retraining.save_retraining_settings({
             "automatic_retraining_enabled": automatic,
             "training_scope": "quick_sample" if scope_label == "Quick sampled run" else "full_dataset",
@@ -245,7 +241,7 @@ with st.form("retraining_settings_form"):
         st.success("Retraining settings saved.")
 
 st.divider()
-st.markdown("### Run retraining now")
+st.markdown("### 🔁 Run retraining now")
 try:
     versions = retraining.list_dataset_versions()
 except Exception as exc:
@@ -274,7 +270,7 @@ if versions:
     else:
         st.info("Standard full-dataset training is selected. All available orders in this dataset version will be used; this can take several minutes on CPU-only hosts.")
 
-    if st.button("Run Five-Model Retraining Now", type="primary", use_container_width=True):
+    if st.button("▶️ Run Five-Model Retraining Now", type="primary", use_container_width=True):
         result = run_training_with_ui(dataset_version=selected_version)
         if result and result.get("status") == "CANDIDATE_READY":
             st.success(f"Candidate ready: `{result.get('metadata', {}).get('candidate_model_id', 'selected model')}`. Review it above before deployment.")
@@ -282,7 +278,7 @@ if versions:
 else:
     st.info("No versioned dataset is currently available for retraining.")
 
-with st.expander("Optional accelerated-compute notebook", expanded=False):
+with st.expander("⚡ Optional accelerated-compute notebook", expanded=False):
     st.caption(
         "The application can retrain directly in the Developer workspace. The Colab notebook is an optional alternative when you want separate compute or a T4 GPU for supported models."
     )
@@ -311,7 +307,7 @@ with st.expander("Optional accelerated-compute notebook", expanded=False):
             st.error(f"Candidate import failed: {exc}")
             st.exception(exc)
 
-st.markdown("### Retraining requests")
+st.markdown("### 📬 Retraining requests")
 requests = retraining.list_retraining_requests()
 if not requests:
     st.caption("No retraining requests have been created yet.")
@@ -322,7 +318,7 @@ else:
     queued = next((r for r in reversed(requests) if r.get("status") == "RETRAINING_REQUIRED"), None)
     if queued:
         st.info(f"Queued request `{queued['request_id']}` is waiting for retraining on dataset `{queued.get('dataset_version')}`.")
-        if st.button("Run Latest Queued Request Now", use_container_width=True):
+        if st.button("▶️ Run Latest Queued Request Now", use_container_width=True):
             result = run_training_with_ui(request=queued)
             if result and result.get("status") == "CANDIDATE_READY":
                 st.success("The queued request produced a Candidate. Review it above before deployment.")

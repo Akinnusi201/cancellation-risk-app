@@ -23,8 +23,7 @@ def currency_caption():
 
 
 require_role("manager")
-st.title("🧾 Decision History")
-st.caption("Audit trail of manager actions and the recommendation that was shown at decision time.")
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">OPERATIONS · AUDIT TRAIL</div><h1>🧾&nbsp; Decision History</h1><p>Trace every manager decision alongside the risk score, model recommendation, expected value, and model version shown at decision time.</p></div>""", unsafe_allow_html=True)
 fx = currency_caption()
 fx_rate = float(fx["rate"])
 

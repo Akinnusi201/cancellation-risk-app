@@ -161,8 +161,7 @@ def show_customer_order_status(sc, decision_made=False):
         st.caption("Flow: Order placed ✓  →  Risk screening ✓  →  Awaiting Operations review …")
 
 require_role("manager")
-st.title("🛒 Score Order")
-st.caption("Use the packaged production model immediately. No DataOps or training step is required.")
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">OPERATIONS · DECISION SUPPORT</div><h1>🛒&nbsp; Score & Review Orders</h1><p>Screen incoming orders with the current production model, understand the expected business value, and decide whether to release or verify.</p></div>""", unsafe_allow_html=True)
 fx = currency_caption()
 fx_rate = float(fx["rate"])
 
@@ -173,7 +172,7 @@ if not meta or reference.empty:
     st.stop()
 
 policy = business_policy_controls("score")
-tabs = st.tabs(["Incoming Order Demo", "Manual Order", "Batch CSV"])
+tabs = st.tabs(["🎬 Incoming Order Demo", "✍️ Manual Order", "📄 Batch CSV"])
 st.caption("**Manual Order** and **Batch CSV** are production-like scoring paths. **Incoming Order Demo** is optional and exists to demonstrate the customer-to-Operations review flow.")
 
 
@@ -321,7 +320,7 @@ with tabs[0]:
                 st.rerun()
 
 with tabs[1]:
-    st.subheader("Manual single-order scoring")
+    st.subheader("✍️ Manual single-order scoring")
     categories = sorted(reference["category_name_1"].dropna().astype(str).unique().tolist())
     payments = sorted(reference["payment_method"].dropna().astype(str).unique().tolist())
     with st.form("manual_order"):
@@ -337,7 +336,7 @@ with tabs[1]:
         g, h = st.columns(2)
         payment = g.selectbox("Payment method", payments)
         category = h.selectbox("Product category", categories)
-        submit = st.form_submit_button("Score Order", type="primary", use_container_width=True)
+        submit = st.form_submit_button("✨ Score Order", type="primary", use_container_width=True)
     if submit:
         manual = prepare_order_features(pd.DataFrame([{
             "order_id": order_id,
@@ -378,14 +377,14 @@ with tabs[1]:
                 st.warning("Decision recorded. The order remains on hold for verification.")
 
 with tabs[2]:
-    st.subheader("Batch scoring")
+    st.subheader("📄 Batch scoring")
     st.caption("Upload one row per order. Outcome/status fields are not required and are ignored for inference. Dollar inputs are converted to PKR internally before model scoring.")
     template = pd.DataFrame([{
         "order_id": "NEW-1001", "created_at": "2026-09-29 14:30:00", "price": round(float(pkr_to_usd(1500, fx_rate)), 2),
         "qty_ordered": 1, "grand_total": round(float(pkr_to_usd(1500, fx_rate)), 2), "discount_amount": 0, "payment_method": "cod",
         "category_name_1": "Men's Fashion", "customer_cancel_rate": 0.10,
     }])
-    st.download_button("Download USD batch template", template.to_csv(index=False).encode(), "prediction_batch_template_usd.csv", "text/csv")
+    st.download_button("⬇️ Download USD batch template", template.to_csv(index=False).encode(), "prediction_batch_template_usd.csv", "text/csv")
     batch_currency = st.selectbox("Currency used by price, grand_total, and discount_amount", ["USD", "PKR"], index=0, help="Choose USD for the new template. PKR keeps compatibility with older source-format files.")
     batch_file = st.file_uploader("Upload order-level CSV", type=["csv"], key="prediction_batch")
     if batch_file is not None:
@@ -431,7 +430,7 @@ with tabs[2]:
             })
             export["fx_pkr_to_usd"] = fx_rate
             st.download_button(
-                "Download scored batch (USD)",
+                "⬇️ Download scored batch (USD)",
                 export.to_csv(index=False).encode(),
                 "scored_orders_usd.csv",
                 "text/csv",

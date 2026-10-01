@@ -25,8 +25,7 @@ def currency_caption():
 
 
 require_role("manager")
-st.title("📊 Operations Dashboard")
-st.caption("Production scoring is ready at login. Data preparation and model training are isolated from day-to-day operations.")
+st.markdown("""<div class="cr-hero"><div class="cr-eyebrow">OPERATIONS · LIVE WORKSPACE</div><h1>📊&nbsp; Operations Dashboard</h1><p>Review the active production model, incoming orders, business rules, and recent decisions from one place.</p></div>""", unsafe_allow_html=True)
 fx = currency_caption()
 fx_rate = float(fx["rate"])
 
@@ -45,8 +44,10 @@ cols[3].metric("Brier Score", f"{m.get('brier', float('nan')):.3f}")
 cols[4].metric("Risk Threshold", f"{float(meta.get('threshold', .5)):.1%}")
 st.caption(f"Production dataset: **{meta.get('dataset_version', 'unknown')}**. The model is loaded from a packaged artifact and does not retrain when the app starts.")
 
+st.page_link("views/2_Score_Order.py", label="🛒 Review or score an order", icon="➡️", use_container_width=True)
+
 policy = load_policy()
-st.subheader("Business Rules Used for Recommendations")
+st.subheader("💵 Business Rules Used for Recommendations")
 a, b, c, d = st.columns(4)
 a.metric("Loss from a late cancellation", format_usd(policy["avoidable_fulfillment_cost"], fx_rate))
 b.metric("Loss prevented by verification", f"{policy['intervention_effectiveness']:.0%}")
@@ -59,7 +60,7 @@ st.info(
 )
 
 
-st.subheader("Incoming Order Review Queue")
+st.subheader("📥 Incoming Order Review Queue")
 try:
     queue = dataframe(
         """
@@ -106,7 +107,7 @@ else:
         st.dataframe(pending_rows, use_container_width=True, hide_index=True)
         st.info("Open **Score Order** to review and decide on the incoming order. Manual orders and demo simulations use the same review workflow.")
 
-st.subheader("Recent Decisions")
+st.subheader("🧾 Recent Decisions")
 hist = dataframe(
     "SELECT decided_at, order_id, probability, recommendation, manager_decision, net_expected_savings "
     "FROM manager_decisions ORDER BY decided_at DESC LIMIT 10"
