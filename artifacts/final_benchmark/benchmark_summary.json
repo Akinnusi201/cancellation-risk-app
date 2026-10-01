@@ -1,0 +1,1063 @@
+{
+  "experiment_name": "cancellation-risk-final-benchmark__pakistan_seed_v1",
+  "dataset_version": "pakistan_seed_v1",
+  "created_at": "2026-10-01T03:29:43.574272+00:00",
+  "random_seed": 42,
+  "training_mode": "cpu",
+  "training_scope": "full_dataset",
+  "source_rows": 318135,
+  "gates": {
+    "min_roc_auc": 0.8,
+    "min_pr_auc": 0.7,
+    "max_brier": 0.22,
+    "min_recall_at_90_precision": 0.15,
+    "min_net_savings_per_1000_orders": 0.0
+  },
+  "business_policy": {
+    "avoidable_fulfillment_cost": 2000.0,
+    "intervention_effectiveness": 0.55,
+    "intervention_cost": 150.0,
+    "false_positive_friction_cost": 50.0
+  },
+  "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+  "split_manifest": {
+    "strategy": "temporal_70_15_15",
+    "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+    "feature_schema_version": "order_features_v1",
+    "train": {
+      "rows": 222694,
+      "cancellation_rate": 0.3966429270658392,
+      "start": "2016-07-01T00:00:00",
+      "end": "2017-11-25T00:00:00"
+    },
+    "validation": {
+      "rows": 47720,
+      "cancellation_rate": 0.43346605196982396,
+      "start": "2017-11-25T00:00:00",
+      "end": "2018-03-15T00:00:00"
+    },
+    "test": {
+      "rows": 47721,
+      "cancellation_rate": 0.8303891368579871,
+      "start": "2018-03-15T00:00:00",
+      "end": "2018-08-28T00:00:00"
+    },
+    "split_id": "f49ec1b6b520c7e7"
+  },
+  "feature_schema_version": "order_features_v1",
+  "candidate_selection_split": "validation",
+  "test_holdout_role": "final_unbiased_evaluation_only",
+  "candidate_model_id": "xgboost__20261001T032923Z",
+  "candidate_package": null,
+  "mlflow_enabled": true,
+  "persist_model_artifacts": false,
+  "models": [
+    {
+      "model_id": "logistic_regression__20261001T032923Z",
+      "model_family": "logistic_regression",
+      "display_name": "Logistic Regression",
+      "status": "READY",
+      "dataset_version": "pakistan_seed_v1",
+      "experiment_name": "cancellation-risk-final-benchmark__pakistan_seed_v1",
+      "run_name": "logistic_regression__20261001T032923Z",
+      "run_id": null,
+      "trained_at": "2026-10-01T03:29:27.291759+00:00",
+      "training_device": "CPU",
+      "training_scope": "full_dataset",
+      "source_rows": 318135,
+      "random_seed": 42,
+      "threshold": 0.285,
+      "val_metrics": {
+        "roc_auc": 0.8014699823088084,
+        "pr_auc": 0.7349255071425739,
+        "brier": 0.18803236579798857,
+        "f1": 0.7174211248285323,
+        "precision": 0.5920196207904914,
+        "recall": 0.9102248005801306,
+        "recall_at_80_precision": 0.3353637901861252,
+        "precision_at_80_precision": 0.8000230653903817,
+        "threshold_at_80_precision": 0.8142173358085973,
+        "recall_at_90_precision": 0.04529852550157119,
+        "precision_at_90_precision": 0.9009615384615385,
+        "threshold_at_90_precision": 0.9473222507495356
+      },
+      "test_metrics": {
+        "roc_auc": 0.8690818351351208,
+        "pr_auc": 0.9652932453682653,
+        "brier": 0.13798983434488196,
+        "f1": 0.9246093208920454,
+        "precision": 0.9227617754989192,
+        "recall": 0.9264642794054558,
+        "recall_at_80_precision": 1.0,
+        "precision_at_80_precision": 0.8303891368579871,
+        "threshold_at_80_precision": 4.709211853844748e-22,
+        "recall_at_90_precision": 0.9824866883690413,
+        "precision_at_90_precision": 0.9000184936890286,
+        "threshold_at_90_precision": 0.10575557792848528
+      },
+      "val_business_metrics": {
+        "orders": 47720,
+        "canceled_orders": 20685,
+        "interventions": 34813,
+        "intervention_rate": 0.7295264040234702,
+        "cancellations_intervened": 19547,
+        "cancellation_capture_rate": 0.9449842881314963,
+        "false_interventions": 15266,
+        "false_intervention_rate": 0.4385143480883578,
+        "estimated_avoided_cost": 21501700.0,
+        "intervention_cost_total": 5221950.0,
+        "false_intervention_cost_total": 763300.0,
+        "net_savings": 15516450.0,
+        "net_savings_per_1000_orders": 325156.11902766133,
+        "average_net_savings_per_intervention": 445.70849969838855,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "test_business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 41636,
+        "intervention_rate": 0.8724880031851805,
+        "cancellations_intervened": 38114,
+        "cancellation_capture_rate": 0.9618189618189619,
+        "false_interventions": 3522,
+        "false_intervention_rate": 0.08459025843020464,
+        "estimated_avoided_cost": 41925400.0,
+        "intervention_cost_total": 6245400.0,
+        "false_intervention_cost_total": 176100.0,
+        "net_savings": 35503900.0,
+        "net_savings_per_1000_orders": 743989.0195092307,
+        "average_net_savings_per_intervention": 852.7212028052646,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 41636,
+        "intervention_rate": 0.8724880031851805,
+        "cancellations_intervened": 38114,
+        "cancellation_capture_rate": 0.9618189618189619,
+        "false_interventions": 3522,
+        "false_intervention_rate": 0.08459025843020464,
+        "estimated_avoided_cost": 41925400.0,
+        "intervention_cost_total": 6245400.0,
+        "false_intervention_cost_total": 176100.0,
+        "net_savings": 35503900.0,
+        "net_savings_per_1000_orders": 743989.0195092307,
+        "average_net_savings_per_intervention": 852.7212028052646,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+      "split_id": "f49ec1b6b520c7e7",
+      "split_manifest": {
+        "strategy": "temporal_70_15_15",
+        "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+        "feature_schema_version": "order_features_v1",
+        "train": {
+          "rows": 222694,
+          "cancellation_rate": 0.3966429270658392,
+          "start": "2016-07-01T00:00:00",
+          "end": "2017-11-25T00:00:00"
+        },
+        "validation": {
+          "rows": 47720,
+          "cancellation_rate": 0.43346605196982396,
+          "start": "2017-11-25T00:00:00",
+          "end": "2018-03-15T00:00:00"
+        },
+        "test": {
+          "rows": 47721,
+          "cancellation_rate": 0.8303891368579871,
+          "start": "2018-03-15T00:00:00",
+          "end": "2018-08-28T00:00:00"
+        },
+        "split_id": "f49ec1b6b520c7e7"
+      },
+      "feature_schema_version": "order_features_v1",
+      "duration_seconds": 1.7809439460002068,
+      "model_artifact": null,
+      "training_rows": 222694,
+      "validation_rows": 47720,
+      "test_rows": 47721,
+      "reproducibility": {
+        "python": "3.13.5",
+        "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+        "sklearn": "1.8.0",
+        "lightgbm": "4.6.0",
+        "xgboost": "3.1.3",
+        "pandas": "2.2.3",
+        "numpy": "2.3.5",
+        "git_commit_sha": "unknown"
+      },
+      "qualification": {
+        "passed": false,
+        "checks": {
+          "ROC-AUC gate": true,
+          "PR-AUC gate": true,
+          "Calibration gate": true,
+          "Recall @ 90% precision gate": false,
+          "Business value gate": true
+        },
+        "evidence_split": "validation"
+      }
+    },
+    {
+      "model_id": "random_forest__20261001T032923Z",
+      "model_family": "random_forest",
+      "display_name": "Random Forest",
+      "status": "READY",
+      "dataset_version": "pakistan_seed_v1",
+      "experiment_name": "cancellation-risk-final-benchmark__pakistan_seed_v1",
+      "run_name": "random_forest__20261001T032923Z",
+      "run_id": null,
+      "trained_at": "2026-10-01T03:29:33.056637+00:00",
+      "training_device": "CPU",
+      "training_scope": "full_dataset",
+      "source_rows": 318135,
+      "random_seed": 42,
+      "threshold": 0.5599999999999999,
+      "val_metrics": {
+        "roc_auc": 0.8252708520843736,
+        "pr_auc": 0.7793168586087926,
+        "brier": 0.19394710184944502,
+        "f1": 0.7229368059439163,
+        "precision": 0.6159343838273832,
+        "recall": 0.8749335267101764,
+        "recall_at_80_precision": 0.4836354846507131,
+        "precision_at_80_precision": 0.8000639795265515,
+        "threshold_at_80_precision": 0.8221914016307981,
+        "recall_at_90_precision": 0.24549190234469423,
+        "precision_at_90_precision": 0.9001950008863676,
+        "threshold_at_90_precision": 0.9000512132855489
+      },
+      "test_metrics": {
+        "roc_auc": 0.9072115468465707,
+        "pr_auc": 0.9748874052196919,
+        "brier": 0.08394140467490842,
+        "f1": 0.9359102244389027,
+        "precision": 0.9249993838266828,
+        "recall": 0.9470815353168295,
+        "recall_at_80_precision": 1.0,
+        "precision_at_80_precision": 0.8303891368579871,
+        "threshold_at_80_precision": 0.004255621754337358,
+        "recall_at_90_precision": 0.987962752668635,
+        "precision_at_90_precision": 0.9,
+        "threshold_at_90_precision": 0.19866870908364248
+      },
+      "val_business_metrics": {
+        "orders": 47720,
+        "canceled_orders": 20685,
+        "interventions": 38796,
+        "intervention_rate": 0.8129924559932942,
+        "cancellations_intervened": 20386,
+        "cancellation_capture_rate": 0.985545080976553,
+        "false_interventions": 18410,
+        "false_intervention_rate": 0.4745334570574286,
+        "estimated_avoided_cost": 22424600.0,
+        "intervention_cost_total": 5819400.0,
+        "false_intervention_cost_total": 920500.0,
+        "net_savings": 15684700.0,
+        "net_savings_per_1000_orders": 328681.89438390615,
+        "average_net_savings_per_intervention": 404.2865243839571,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "test_business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 43849,
+        "intervention_rate": 0.9188617170637665,
+        "cancellations_intervened": 39262,
+        "cancellation_capture_rate": 0.9907891084361673,
+        "false_interventions": 4587,
+        "false_intervention_rate": 0.10460899906497298,
+        "estimated_avoided_cost": 43188200.0,
+        "intervention_cost_total": 6577350.0,
+        "false_intervention_cost_total": 229350.0,
+        "net_savings": 36381500.0,
+        "net_savings_per_1000_orders": 762379.2460342407,
+        "average_net_savings_per_intervention": 829.699651075281,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 43849,
+        "intervention_rate": 0.9188617170637665,
+        "cancellations_intervened": 39262,
+        "cancellation_capture_rate": 0.9907891084361673,
+        "false_interventions": 4587,
+        "false_intervention_rate": 0.10460899906497298,
+        "estimated_avoided_cost": 43188200.0,
+        "intervention_cost_total": 6577350.0,
+        "false_intervention_cost_total": 229350.0,
+        "net_savings": 36381500.0,
+        "net_savings_per_1000_orders": 762379.2460342407,
+        "average_net_savings_per_intervention": 829.699651075281,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+      "split_id": "f49ec1b6b520c7e7",
+      "split_manifest": {
+        "strategy": "temporal_70_15_15",
+        "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+        "feature_schema_version": "order_features_v1",
+        "train": {
+          "rows": 222694,
+          "cancellation_rate": 0.3966429270658392,
+          "start": "2016-07-01T00:00:00",
+          "end": "2017-11-25T00:00:00"
+        },
+        "validation": {
+          "rows": 47720,
+          "cancellation_rate": 0.43346605196982396,
+          "start": "2017-11-25T00:00:00",
+          "end": "2018-03-15T00:00:00"
+        },
+        "test": {
+          "rows": 47721,
+          "cancellation_rate": 0.8303891368579871,
+          "start": "2018-03-15T00:00:00",
+          "end": "2018-08-28T00:00:00"
+        },
+        "split_id": "f49ec1b6b520c7e7"
+      },
+      "feature_schema_version": "order_features_v1",
+      "duration_seconds": 5.53121426000007,
+      "model_artifact": null,
+      "training_rows": 222694,
+      "validation_rows": 47720,
+      "test_rows": 47721,
+      "reproducibility": {
+        "python": "3.13.5",
+        "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+        "sklearn": "1.8.0",
+        "lightgbm": "4.6.0",
+        "xgboost": "3.1.3",
+        "pandas": "2.2.3",
+        "numpy": "2.3.5",
+        "git_commit_sha": "unknown"
+      },
+      "qualification": {
+        "passed": true,
+        "checks": {
+          "ROC-AUC gate": true,
+          "PR-AUC gate": true,
+          "Calibration gate": true,
+          "Recall @ 90% precision gate": true,
+          "Business value gate": true
+        },
+        "evidence_split": "validation"
+      },
+      "selection_score": 0.650358276090155,
+      "selection_evidence": {
+        "split": "validation",
+        "metrics": {
+          "roc_auc": 0.8252708520843736,
+          "pr_auc": 0.7793168586087926,
+          "brier": 0.19394710184944502,
+          "f1": 0.7229368059439163,
+          "precision": 0.6159343838273832,
+          "recall": 0.8749335267101764,
+          "recall_at_80_precision": 0.4836354846507131,
+          "precision_at_80_precision": 0.8000639795265515,
+          "threshold_at_80_precision": 0.8221914016307981,
+          "recall_at_90_precision": 0.24549190234469423,
+          "precision_at_90_precision": 0.9001950008863676,
+          "threshold_at_90_precision": 0.9000512132855489
+        },
+        "business_metrics": {
+          "orders": 47720,
+          "canceled_orders": 20685,
+          "interventions": 38796,
+          "intervention_rate": 0.8129924559932942,
+          "cancellations_intervened": 20386,
+          "cancellation_capture_rate": 0.985545080976553,
+          "false_interventions": 18410,
+          "false_intervention_rate": 0.4745334570574286,
+          "estimated_avoided_cost": 22424600.0,
+          "intervention_cost_total": 5819400.0,
+          "false_intervention_cost_total": 920500.0,
+          "net_savings": 15684700.0,
+          "net_savings_per_1000_orders": 328681.89438390615,
+          "average_net_savings_per_intervention": 404.2865243839571,
+          "policy": {
+            "avoidable_fulfillment_cost": 2000.0,
+            "intervention_effectiveness": 0.55,
+            "intervention_cost": 150.0,
+            "false_positive_friction_cost": 50.0
+          }
+        }
+      }
+    },
+    {
+      "model_id": "extra_trees__20261001T032923Z",
+      "model_family": "extra_trees",
+      "display_name": "Extra Trees",
+      "status": "READY",
+      "dataset_version": "pakistan_seed_v1",
+      "experiment_name": "cancellation-risk-final-benchmark__pakistan_seed_v1",
+      "run_name": "extra_trees__20261001T032923Z",
+      "run_id": null,
+      "trained_at": "2026-10-01T03:29:38.968016+00:00",
+      "training_device": "CPU",
+      "training_scope": "full_dataset",
+      "source_rows": 318135,
+      "random_seed": 42,
+      "threshold": 0.39499999999999996,
+      "val_metrics": {
+        "roc_auc": 0.8178200382059639,
+        "pr_auc": 0.7727180094582191,
+        "brier": 0.19282811063110988,
+        "f1": 0.7216272060356757,
+        "precision": 0.5935512036921542,
+        "recall": 0.9201837080009669,
+        "recall_at_80_precision": 0.47000241721053904,
+        "precision_at_80_precision": 0.8000329163923634,
+        "threshold_at_80_precision": 0.7851658696556878,
+        "recall_at_90_precision": 0.20763838530335993,
+        "precision_at_90_precision": 0.9013641133263379,
+        "threshold_at_90_precision": 0.8863123533475817
+      },
+      "test_metrics": {
+        "roc_auc": 0.8932528905929683,
+        "pr_auc": 0.9703645765646013,
+        "brier": 0.09599451876795409,
+        "f1": 0.9403767241805507,
+        "precision": 0.9215377534458952,
+        "recall": 0.9600020188255483,
+        "recall_at_80_precision": 1.0,
+        "precision_at_80_precision": 0.8303891368579871,
+        "threshold_at_80_precision": 0.050911851543234465,
+        "recall_at_90_precision": 0.9848588083882202,
+        "precision_at_90_precision": 0.9000899467238636,
+        "threshold_at_90_precision": 0.18088696169050486
+      },
+      "val_business_metrics": {
+        "orders": 47720,
+        "canceled_orders": 20685,
+        "interventions": 38141,
+        "intervention_rate": 0.7992665549036043,
+        "cancellations_intervened": 20170,
+        "cancellation_capture_rate": 0.9751027314479092,
+        "false_interventions": 17971,
+        "false_intervention_rate": 0.47117275372958234,
+        "estimated_avoided_cost": 22187000.0,
+        "intervention_cost_total": 5721150.0,
+        "false_intervention_cost_total": 898550.0,
+        "net_savings": 15567300.0,
+        "net_savings_per_1000_orders": 326221.7099748533,
+        "average_net_savings_per_intervention": 408.1513332109803,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "test_business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 43576,
+        "intervention_rate": 0.9131409651935207,
+        "cancellations_intervened": 39069,
+        "cancellation_capture_rate": 0.9859186918010447,
+        "false_interventions": 4507,
+        "false_intervention_rate": 0.10342849274830182,
+        "estimated_avoided_cost": 42975900.0,
+        "intervention_cost_total": 6536400.0,
+        "false_intervention_cost_total": 225350.0,
+        "net_savings": 36214150.0,
+        "net_savings_per_1000_orders": 758872.4041826449,
+        "average_net_savings_per_intervention": 831.0572333394529,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 43576,
+        "intervention_rate": 0.9131409651935207,
+        "cancellations_intervened": 39069,
+        "cancellation_capture_rate": 0.9859186918010447,
+        "false_interventions": 4507,
+        "false_intervention_rate": 0.10342849274830182,
+        "estimated_avoided_cost": 42975900.0,
+        "intervention_cost_total": 6536400.0,
+        "false_intervention_cost_total": 225350.0,
+        "net_savings": 36214150.0,
+        "net_savings_per_1000_orders": 758872.4041826449,
+        "average_net_savings_per_intervention": 831.0572333394529,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+      "split_id": "f49ec1b6b520c7e7",
+      "split_manifest": {
+        "strategy": "temporal_70_15_15",
+        "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+        "feature_schema_version": "order_features_v1",
+        "train": {
+          "rows": 222694,
+          "cancellation_rate": 0.3966429270658392,
+          "start": "2016-07-01T00:00:00",
+          "end": "2017-11-25T00:00:00"
+        },
+        "validation": {
+          "rows": 47720,
+          "cancellation_rate": 0.43346605196982396,
+          "start": "2017-11-25T00:00:00",
+          "end": "2018-03-15T00:00:00"
+        },
+        "test": {
+          "rows": 47721,
+          "cancellation_rate": 0.8303891368579871,
+          "start": "2018-03-15T00:00:00",
+          "end": "2018-08-28T00:00:00"
+        },
+        "split_id": "f49ec1b6b520c7e7"
+      },
+      "feature_schema_version": "order_features_v1",
+      "duration_seconds": 5.67786933699972,
+      "model_artifact": null,
+      "training_rows": 222694,
+      "validation_rows": 47720,
+      "test_rows": 47721,
+      "reproducibility": {
+        "python": "3.13.5",
+        "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+        "sklearn": "1.8.0",
+        "lightgbm": "4.6.0",
+        "xgboost": "3.1.3",
+        "pandas": "2.2.3",
+        "numpy": "2.3.5",
+        "git_commit_sha": "unknown"
+      },
+      "qualification": {
+        "passed": true,
+        "checks": {
+          "ROC-AUC gate": true,
+          "PR-AUC gate": true,
+          "Calibration gate": true,
+          "Recall @ 90% precision gate": true,
+          "Business value gate": true
+        },
+        "evidence_split": "validation"
+      },
+      "selection_score": 0.5902146475853278,
+      "selection_evidence": {
+        "split": "validation",
+        "metrics": {
+          "roc_auc": 0.8178200382059639,
+          "pr_auc": 0.7727180094582191,
+          "brier": 0.19282811063110988,
+          "f1": 0.7216272060356757,
+          "precision": 0.5935512036921542,
+          "recall": 0.9201837080009669,
+          "recall_at_80_precision": 0.47000241721053904,
+          "precision_at_80_precision": 0.8000329163923634,
+          "threshold_at_80_precision": 0.7851658696556878,
+          "recall_at_90_precision": 0.20763838530335993,
+          "precision_at_90_precision": 0.9013641133263379,
+          "threshold_at_90_precision": 0.8863123533475817
+        },
+        "business_metrics": {
+          "orders": 47720,
+          "canceled_orders": 20685,
+          "interventions": 38141,
+          "intervention_rate": 0.7992665549036043,
+          "cancellations_intervened": 20170,
+          "cancellation_capture_rate": 0.9751027314479092,
+          "false_interventions": 17971,
+          "false_intervention_rate": 0.47117275372958234,
+          "estimated_avoided_cost": 22187000.0,
+          "intervention_cost_total": 5721150.0,
+          "false_intervention_cost_total": 898550.0,
+          "net_savings": 15567300.0,
+          "net_savings_per_1000_orders": 326221.7099748533,
+          "average_net_savings_per_intervention": 408.1513332109803,
+          "policy": {
+            "avoidable_fulfillment_cost": 2000.0,
+            "intervention_effectiveness": 0.55,
+            "intervention_cost": 150.0,
+            "false_positive_friction_cost": 50.0
+          }
+        }
+      }
+    },
+    {
+      "model_id": "lightgbm__20261001T032923Z",
+      "model_family": "lightgbm",
+      "display_name": "LightGBM",
+      "status": "READY",
+      "dataset_version": "pakistan_seed_v1",
+      "experiment_name": "cancellation-risk-final-benchmark__pakistan_seed_v1",
+      "run_name": "lightgbm__20261001T032923Z",
+      "run_id": null,
+      "trained_at": "2026-10-01T03:29:41.186594+00:00",
+      "training_device": "CPU",
+      "training_scope": "full_dataset",
+      "source_rows": 318135,
+      "random_seed": 42,
+      "threshold": 0.3999999999999999,
+      "val_metrics": {
+        "roc_auc": 0.8307466900600073,
+        "pr_auc": 0.7815520404597934,
+        "brier": 0.17599387680181877,
+        "f1": 0.7240193507023372,
+        "precision": 0.605242642759696,
+        "recall": 0.9007976794778825,
+        "recall_at_80_precision": 0.4954314720812183,
+        "precision_at_80_precision": 0.8001873975169829,
+        "threshold_at_80_precision": 0.773935316066862,
+        "recall_at_90_precision": 0.22209330432680688,
+        "precision_at_90_precision": 0.9000783699059561,
+        "threshold_at_90_precision": 0.8822928790783735
+      },
+      "test_metrics": {
+        "roc_auc": 0.9105230153065151,
+        "pr_auc": 0.9761840743330156,
+        "brier": 0.09239868961927497,
+        "f1": 0.9414969355537671,
+        "precision": 0.9242063299139481,
+        "recall": 0.959446841799783,
+        "recall_at_80_precision": 1.0,
+        "precision_at_80_precision": 0.8303891368579871,
+        "threshold_at_80_precision": 0.0037232011476647947,
+        "recall_at_90_precision": 0.9886945769298711,
+        "precision_at_90_precision": 0.9000045943214188,
+        "threshold_at_90_precision": 0.14223384474051223
+      },
+      "val_business_metrics": {
+        "orders": 47720,
+        "canceled_orders": 20685,
+        "interventions": 35899,
+        "intervention_rate": 0.7522841575859178,
+        "cancellations_intervened": 20072,
+        "cancellation_capture_rate": 0.9703649987913947,
+        "false_interventions": 15827,
+        "false_intervention_rate": 0.4408757904119892,
+        "estimated_avoided_cost": 22079200.0,
+        "intervention_cost_total": 5384850.0,
+        "false_intervention_cost_total": 791350.0,
+        "net_savings": 15903000.0,
+        "net_savings_per_1000_orders": 333256.49622799666,
+        "average_net_savings_per_intervention": 442.99284102621243,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "test_business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 42943,
+        "intervention_rate": 0.8998763647031706,
+        "cancellations_intervened": 38976,
+        "cancellation_capture_rate": 0.9835718071012188,
+        "false_interventions": 3967,
+        "false_intervention_rate": 0.09237826886803437,
+        "estimated_avoided_cost": 42873600.0,
+        "intervention_cost_total": 6441450.0,
+        "false_intervention_cost_total": 198350.0,
+        "net_savings": 36233800.0,
+        "net_savings_per_1000_orders": 759284.1725864924,
+        "average_net_savings_per_intervention": 843.7649908017605,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 42943,
+        "intervention_rate": 0.8998763647031706,
+        "cancellations_intervened": 38976,
+        "cancellation_capture_rate": 0.9835718071012188,
+        "false_interventions": 3967,
+        "false_intervention_rate": 0.09237826886803437,
+        "estimated_avoided_cost": 42873600.0,
+        "intervention_cost_total": 6441450.0,
+        "false_intervention_cost_total": 198350.0,
+        "net_savings": 36233800.0,
+        "net_savings_per_1000_orders": 759284.1725864924,
+        "average_net_savings_per_intervention": 843.7649908017605,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+      "split_id": "f49ec1b6b520c7e7",
+      "split_manifest": {
+        "strategy": "temporal_70_15_15",
+        "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+        "feature_schema_version": "order_features_v1",
+        "train": {
+          "rows": 222694,
+          "cancellation_rate": 0.3966429270658392,
+          "start": "2016-07-01T00:00:00",
+          "end": "2017-11-25T00:00:00"
+        },
+        "validation": {
+          "rows": 47720,
+          "cancellation_rate": 0.43346605196982396,
+          "start": "2017-11-25T00:00:00",
+          "end": "2018-03-15T00:00:00"
+        },
+        "test": {
+          "rows": 47721,
+          "cancellation_rate": 0.8303891368579871,
+          "start": "2018-03-15T00:00:00",
+          "end": "2018-08-28T00:00:00"
+        },
+        "split_id": "f49ec1b6b520c7e7"
+      },
+      "feature_schema_version": "order_features_v1",
+      "duration_seconds": 1.9889896620002219,
+      "model_artifact": null,
+      "training_rows": 222694,
+      "validation_rows": 47720,
+      "test_rows": 47721,
+      "reproducibility": {
+        "python": "3.13.5",
+        "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+        "sklearn": "1.8.0",
+        "lightgbm": "4.6.0",
+        "xgboost": "3.1.3",
+        "pandas": "2.2.3",
+        "numpy": "2.3.5",
+        "git_commit_sha": "unknown"
+      },
+      "qualification": {
+        "passed": true,
+        "checks": {
+          "ROC-AUC gate": true,
+          "PR-AUC gate": true,
+          "Calibration gate": true,
+          "Recall @ 90% precision gate": true,
+          "Business value gate": true
+        },
+        "evidence_split": "validation"
+      },
+      "selection_score": 0.7475281766762356,
+      "selection_evidence": {
+        "split": "validation",
+        "metrics": {
+          "roc_auc": 0.8307466900600073,
+          "pr_auc": 0.7815520404597934,
+          "brier": 0.17599387680181877,
+          "f1": 0.7240193507023372,
+          "precision": 0.605242642759696,
+          "recall": 0.9007976794778825,
+          "recall_at_80_precision": 0.4954314720812183,
+          "precision_at_80_precision": 0.8001873975169829,
+          "threshold_at_80_precision": 0.773935316066862,
+          "recall_at_90_precision": 0.22209330432680688,
+          "precision_at_90_precision": 0.9000783699059561,
+          "threshold_at_90_precision": 0.8822928790783735
+        },
+        "business_metrics": {
+          "orders": 47720,
+          "canceled_orders": 20685,
+          "interventions": 35899,
+          "intervention_rate": 0.7522841575859178,
+          "cancellations_intervened": 20072,
+          "cancellation_capture_rate": 0.9703649987913947,
+          "false_interventions": 15827,
+          "false_intervention_rate": 0.4408757904119892,
+          "estimated_avoided_cost": 22079200.0,
+          "intervention_cost_total": 5384850.0,
+          "false_intervention_cost_total": 791350.0,
+          "net_savings": 15903000.0,
+          "net_savings_per_1000_orders": 333256.49622799666,
+          "average_net_savings_per_intervention": 442.99284102621243,
+          "policy": {
+            "avoidable_fulfillment_cost": 2000.0,
+            "intervention_effectiveness": 0.55,
+            "intervention_cost": 150.0,
+            "false_positive_friction_cost": 50.0
+          }
+        }
+      }
+    },
+    {
+      "model_id": "xgboost__20261001T032923Z",
+      "model_family": "xgboost",
+      "display_name": "XGBoost",
+      "status": "CANDIDATE",
+      "dataset_version": "pakistan_seed_v1",
+      "experiment_name": "cancellation-risk-final-benchmark__pakistan_seed_v1",
+      "run_name": "xgboost__20261001T032923Z",
+      "run_id": null,
+      "trained_at": "2026-10-01T03:29:43.563830+00:00",
+      "training_device": "CPU",
+      "training_scope": "full_dataset",
+      "source_rows": 318135,
+      "random_seed": 42,
+      "threshold": 0.4099999999999999,
+      "val_metrics": {
+        "roc_auc": 0.8295788925974839,
+        "pr_auc": 0.780978045530578,
+        "brier": 0.17662549018859863,
+        "f1": 0.7243211449857857,
+        "precision": 0.6092348284960423,
+        "recall": 0.8930142615421803,
+        "recall_at_80_precision": 0.468600435097897,
+        "precision_at_80_precision": 0.8000165070980522,
+        "threshold_at_80_precision": 0.7928826212882996,
+        "recall_at_90_precision": 0.23036016437031664,
+        "precision_at_90_precision": 0.9002456074060079,
+        "threshold_at_90_precision": 0.8812671899795532
+      },
+      "test_metrics": {
+        "roc_auc": 0.9059039588516761,
+        "pr_auc": 0.9746462381325616,
+        "brier": 0.09402964264154434,
+        "f1": 0.940147832126203,
+        "precision": 0.9243506889403731,
+        "recall": 0.9564943094354859,
+        "recall_at_80_precision": 1.0,
+        "precision_at_80_precision": 0.8303891368579871,
+        "threshold_at_80_precision": 0.002383480779826641,
+        "recall_at_90_precision": 0.988719812249224,
+        "precision_at_90_precision": 0.9000068913238233,
+        "threshold_at_90_precision": 0.14420953392982483
+      },
+      "val_business_metrics": {
+        "orders": 47720,
+        "canceled_orders": 20685,
+        "interventions": 36018,
+        "intervention_rate": 0.754777870913663,
+        "cancellations_intervened": 20100,
+        "cancellation_capture_rate": 0.971718636693256,
+        "false_interventions": 15918,
+        "false_intervention_rate": 0.4419456938197568,
+        "estimated_avoided_cost": 22110000.0,
+        "intervention_cost_total": 5402700.0,
+        "false_intervention_cost_total": 795900.0,
+        "net_savings": 15911400.0,
+        "net_savings_per_1000_orders": 333432.52305113163,
+        "average_net_savings_per_intervention": 441.76245210727967,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "test_business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 43008,
+        "intervention_rate": 0.9012384484818005,
+        "cancellations_intervened": 39010,
+        "cancellation_capture_rate": 0.9844298079592197,
+        "false_interventions": 3998,
+        "false_intervention_rate": 0.0929594494047619,
+        "estimated_avoided_cost": 42911000.0,
+        "intervention_cost_total": 6451200.0,
+        "false_intervention_cost_total": 199900.0,
+        "net_savings": 36259900.0,
+        "net_savings_per_1000_orders": 759831.1016114498,
+        "average_net_savings_per_intervention": 843.0966331845239,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "business_metrics": {
+        "orders": 47721,
+        "canceled_orders": 39627,
+        "interventions": 43008,
+        "intervention_rate": 0.9012384484818005,
+        "cancellations_intervened": 39010,
+        "cancellation_capture_rate": 0.9844298079592197,
+        "false_interventions": 3998,
+        "false_intervention_rate": 0.0929594494047619,
+        "estimated_avoided_cost": 42911000.0,
+        "intervention_cost_total": 6451200.0,
+        "false_intervention_cost_total": 199900.0,
+        "net_savings": 36259900.0,
+        "net_savings_per_1000_orders": 759831.1016114498,
+        "average_net_savings_per_intervention": 843.0966331845239,
+        "policy": {
+          "avoidable_fulfillment_cost": 2000.0,
+          "intervention_effectiveness": 0.55,
+          "intervention_cost": 150.0,
+          "false_positive_friction_cost": 50.0
+        }
+      },
+      "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+      "split_id": "f49ec1b6b520c7e7",
+      "split_manifest": {
+        "strategy": "temporal_70_15_15",
+        "dataset_fingerprint": "ca96026c10f7cceed075f280fa0d21df0a7ece4081ea821df8d39632fe578d40",
+        "feature_schema_version": "order_features_v1",
+        "train": {
+          "rows": 222694,
+          "cancellation_rate": 0.3966429270658392,
+          "start": "2016-07-01T00:00:00",
+          "end": "2017-11-25T00:00:00"
+        },
+        "validation": {
+          "rows": 47720,
+          "cancellation_rate": 0.43346605196982396,
+          "start": "2017-11-25T00:00:00",
+          "end": "2018-03-15T00:00:00"
+        },
+        "test": {
+          "rows": 47721,
+          "cancellation_rate": 0.8303891368579871,
+          "start": "2018-03-15T00:00:00",
+          "end": "2018-08-28T00:00:00"
+        },
+        "split_id": "f49ec1b6b520c7e7"
+      },
+      "feature_schema_version": "order_features_v1",
+      "duration_seconds": 2.157838124999671,
+      "model_artifact": null,
+      "training_rows": 222694,
+      "validation_rows": 47720,
+      "test_rows": 47721,
+      "reproducibility": {
+        "python": "3.13.5",
+        "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+        "sklearn": "1.8.0",
+        "lightgbm": "4.6.0",
+        "xgboost": "3.1.3",
+        "pandas": "2.2.3",
+        "numpy": "2.3.5",
+        "git_commit_sha": "unknown"
+      },
+      "qualification": {
+        "passed": true,
+        "checks": {
+          "ROC-AUC gate": true,
+          "PR-AUC gate": true,
+          "Calibration gate": true,
+          "Recall @ 90% precision gate": true,
+          "Business value gate": true
+        },
+        "evidence_split": "validation"
+      },
+      "selection_score": 0.7518681611498432,
+      "selection_evidence": {
+        "split": "validation",
+        "metrics": {
+          "roc_auc": 0.8295788925974839,
+          "pr_auc": 0.780978045530578,
+          "brier": 0.17662549018859863,
+          "f1": 0.7243211449857857,
+          "precision": 0.6092348284960423,
+          "recall": 0.8930142615421803,
+          "recall_at_80_precision": 0.468600435097897,
+          "precision_at_80_precision": 0.8000165070980522,
+          "threshold_at_80_precision": 0.7928826212882996,
+          "recall_at_90_precision": 0.23036016437031664,
+          "precision_at_90_precision": 0.9002456074060079,
+          "threshold_at_90_precision": 0.8812671899795532
+        },
+        "business_metrics": {
+          "orders": 47720,
+          "canceled_orders": 20685,
+          "interventions": 36018,
+          "intervention_rate": 0.754777870913663,
+          "cancellations_intervened": 20100,
+          "cancellation_capture_rate": 0.971718636693256,
+          "false_interventions": 15918,
+          "false_intervention_rate": 0.4419456938197568,
+          "estimated_avoided_cost": 22110000.0,
+          "intervention_cost_total": 5402700.0,
+          "false_intervention_cost_total": 795900.0,
+          "net_savings": 15911400.0,
+          "net_savings_per_1000_orders": 333432.52305113163,
+          "average_net_savings_per_intervention": 441.76245210727967,
+          "policy": {
+            "avoidable_fulfillment_cost": 2000.0,
+            "intervention_effectiveness": 0.55,
+            "intervention_cost": 150.0,
+            "false_positive_friction_cost": 50.0
+          }
+        }
+      },
+      "selection": {
+        "selected_by": "validation_qualification_gates_then_weighted_score",
+        "selection_score": 0.7518681611498432,
+        "selection_split": "validation",
+        "test_holdout_role": "final_unbiased_evaluation_only",
+        "gates": {
+          "min_roc_auc": 0.8,
+          "min_pr_auc": 0.7,
+          "max_brier": 0.22,
+          "min_recall_at_90_precision": 0.15,
+          "min_net_savings_per_1000_orders": 0.0
+        }
+      }
+    }
+  ],
+  "reproducibility": {
+    "python": "3.13.5",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "sklearn": "1.8.0",
+    "lightgbm": "4.6.0",
+    "xgboost": "3.1.3",
+    "pandas": "2.2.3",
+    "numpy": "2.3.5",
+    "git_commit_sha": "unknown"
+  },
+  "benchmark_contract": {
+    "same_dataset_version": true,
+    "same_dataset_fingerprint": true,
+    "same_temporal_split": true,
+    "same_feature_schema": true,
+    "same_business_policy": true,
+    "candidate_selection_uses": "validation_only",
+    "test_holdout_use": "final_unbiased_evaluation_only"
+  }
+}

@@ -429,3 +429,101 @@ def ordinary_colab_url():
         repo = repo.removeprefix("https://github.com/").removesuffix(".git").strip("/")
         return f"https://colab.research.google.com/github/{repo}/blob/{branch}/notebooks/end_to_end_ml_workflow.ipynb"
     return None
+
+
+def run_manual_experiment(
+    dataset_version,
+    model_family,
+    hyperparameters=None,
+    training_scope="full_dataset",
+    max_training_rows=60_000,
+    prefer_gpu=True,
+    random_seed=42,
+    progress=None,
+):
+    """Run one developer-tuned model experiment directly in the application.
+
+    The run is tracked in MLflow and registered as READY. It never changes Candidate
+    or Production automatically.
+    """
+    from src.models.suite import SuiteConfig, train_single_model_experiment
+
+    scope = "quick_sample" if training_scope in {"quick_sample", "fast_prototype"} else "full_dataset"
+    temporary_settings = {
+        **load_retraining_settings(),
+        "training_scope": scope,
+        "max_training_rows": int(max_training_rows),
+        "prefer_gpu_if_available": bool(prefer_gpu),
+    }
+    if progress:
+        progress("load_data", 0.05, "Loading the selected versioned dataset")
+    snapshot, selected, scope_meta = load_training_snapshot(dataset_version, settings=temporary_settings)
+    if progress:
+        progress(
+            "load_data",
+            1.0,
+            f"Loaded {scope_meta['training_rows']:,} of {scope_meta['source_rows']:,} orders for {selected['dataset_version']}",
+        )
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    output_dir = RUNS_DIR / "manual_experiments" / f"{model_family}__{stamp}"
+    experiment_name = f"cancellation-risk-manual__{selected['dataset_version']}__{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+    config = SuiteConfig(
+        dataset_version=selected["dataset_version"],
+        output_dir=output_dir,
+        use_gpu=bool(prefer_gpu),
+        random_seed=int(random_seed),
+        experiment_name=experiment_name,
+        mlflow_tracking_uri=MLFLOW_TRACKING_URI,
+        training_scope=scope_meta["training_scope"],
+        source_rows=scope_meta["source_rows"],
+    )
+    return train_single_model_experiment(
+        snapshot,
+        config,
+        family=model_family,
+        hyperparameters=hyperparameters or {},
+        progress=progress,
+        register=True,
+    )
+
+
+def run_final_benchmark(dataset_version=None, prefer_gpu=True, progress=None):
+    """Run a fair full-data five-model benchmark without changing model lifecycle state.
+
+    Every model sees the same dataset fingerprint and temporal split. Qualification and
+    ranking use validation evidence only; the test split is reserved for final reporting.
+    All five runs are tracked in MLflow. No Candidate or Production status is changed.
+    """
+    from src.models.benchmark import save_final_benchmark
+    from src.models.suite import SuiteConfig, train_model_suite
+
+    full_settings = {
+        **load_retraining_settings(),
+        "training_scope": "full_dataset",
+        "prefer_gpu_if_available": bool(prefer_gpu),
+    }
+    if progress:
+        progress("load_data", 0.05, "Loading the complete selected dataset for a fair benchmark")
+    snapshot, selected, scope_meta = load_training_snapshot(dataset_version, settings=full_settings)
+    if progress:
+        progress("load_data", 1.0, f"Loaded all {scope_meta['source_rows']:,} orders from {selected['dataset_version']}")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    output_dir = RUNS_DIR / "final_benchmarks" / stamp
+    config = SuiteConfig(
+        dataset_version=selected["dataset_version"],
+        output_dir=output_dir,
+        use_gpu=bool(prefer_gpu),
+        random_seed=42,
+        experiment_name=f"cancellation-risk-final-benchmark__{selected['dataset_version']}__{stamp}",
+        mlflow_tracking_uri=MLFLOW_TRACKING_URI,
+        training_scope="full_dataset",
+        source_rows=scope_meta["source_rows"],
+        enable_mlflow=True,
+        persist_model_artifacts=False,
+        package_candidate=False,
+    )
+    summary = train_model_suite(snapshot, config, progress=progress)
+    save_final_benchmark(summary)
+    return summary

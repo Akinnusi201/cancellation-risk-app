@@ -17,6 +17,7 @@ MLFLOW_ARTIFACT_ROOT = ARTIFACT_DIR / "mlflow"
 REGISTERED_MODEL_NAME = "cancellation-risk-classifier"
 
 RANDOM_STATE = 42
+FEATURE_SCHEMA_VERSION = "order_features_v1"
 TARGET = "is_canceled"
 TIME_COL = "created_at"
 ORDER_ID_CANDIDATES = ["increment_id", "order_id", "Order ID", "item_id"]

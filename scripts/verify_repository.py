@@ -47,6 +47,14 @@ check("GitHub Actions", bool(workflows), ".github/workflows")
 check("Dockerfile", (ROOT / "Dockerfile").exists(), "Dockerfile")
 check("First-deployment README", all(x in readme_text for x in ["What problem does this solve?", "Starter model registry", "Retraining settings", "Candidate selection and deployment", "Monitoring and retraining", "Reproducibility"]), "README.md")
 check("Experiments GUI", "Experiment Runs" in experiments_text and "Compare Models" in experiments_text and "MLflow Tracking" in experiments_text, "plain-language MLflow-style interface")
+check("Manual tuned experiments", all(x in experiments_text for x in ["Run Experiment", "Tune parameters", "run_manual_experiment", "Mark latest experiment as Candidate"]) and "train_single_model_experiment" in suite_text and "run_manual_experiment" in retraining_text, "in-app developer tuning + MLflow tracking")
+check("Validation-only candidate selection", "test_holdout_role" in suite_text and "selection_split" in suite_text and "_selection_evidence" in suite_text, "test holdout excluded from candidate ranking")
+check("Final fair benchmark", (ROOT / "artifacts/final_benchmark/benchmark_summary.json").exists() and (ROOT / "artifacts/final_benchmark/benchmark_comparison.csv").exists(), "full-data five-model evidence")
+if (ROOT / "artifacts/final_benchmark/benchmark_summary.json").exists():
+    benchmark = json.loads((ROOT / "artifacts/final_benchmark/benchmark_summary.json").read_text())
+    contract = benchmark.get("benchmark_contract", {})
+    check("Benchmark reproducibility contract", all(contract.get(k) for k in ["same_dataset_version", "same_dataset_fingerprint", "same_temporal_split", "same_feature_schema", "same_business_policy"]), "same dataset/split/schema/policy")
+    check("Benchmark test holdout guard", contract.get("candidate_selection_uses") == "validation_only" and contract.get("test_holdout_use") == "final_unbiased_evaluation_only", "validation selects; test reports")
 
 failed = False
 for name, ok, detail in checks:

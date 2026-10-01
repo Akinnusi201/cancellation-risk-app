@@ -13,6 +13,7 @@ except ImportError:
     from src.business_evaluation import evaluate_business_policy
 from src.config import ARTIFACT_DIR, ROOT
 from src.models.registry import active_metadata, list_registered_models
+from src.models.benchmark import load_final_benchmark, load_final_benchmark_table
 from src.database.duckdb_manager import connect
 import src.retraining as retraining
 # Import the monitoring module as a module instead of importing every symbol
@@ -590,6 +591,37 @@ with evaluation_tab:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     st.divider()
+    benchmark = load_final_benchmark()
+    benchmark_table = load_final_benchmark_table()
+    if benchmark and not benchmark_table.empty:
+        st.markdown("#### Final fair five-model benchmark")
+        st.caption(
+            "All five models use the same full dataset and deterministic temporal split. Validation chooses the model; the test holdout is reserved for final reporting."
+        )
+        show = benchmark_table.copy()
+        show["Test Net Savings / 1,000 ($)"] = show["test_net_savings_per_1000_orders"].map(
+            lambda x: format_usd(float(x), fx_rate) if pd.notna(x) else "n/a"
+        )
+        show = show.rename(columns={
+            "model": "Model",
+            "qualified_on_validation": "Qualified",
+            "selected_candidate": "Selected by Validation",
+            "test_roc_auc": "Test ROC-AUC",
+            "test_pr_auc": "Test PR-AUC",
+            "test_brier": "Test Brier",
+            "test_recall_at_90_precision": "Test Recall @ 90% Precision",
+        })
+        cols = [c for c in [
+            "Model", "Qualified", "Selected by Validation", "Test ROC-AUC", "Test PR-AUC", "Test Brier",
+            "Test Recall @ 90% Precision", "Test Net Savings / 1,000 ($)"
+        ] if c in show.columns]
+        st.dataframe(show[cols], use_container_width=True, hide_index=True)
+        st.caption(
+            f"Dataset fingerprint `{benchmark.get('dataset_fingerprint', 'n/a')[:16]}…` · "
+            f"split `{benchmark.get('split_manifest', {}).get('split_id', 'n/a')}` · "
+            f"feature schema `{benchmark.get('feature_schema_version', 'n/a')}`"
+        )
+
     comparison_path = eval_dir / "baseline_comparison.csv"
     if comparison_path.exists():
         comparison = pd.read_csv(comparison_path)

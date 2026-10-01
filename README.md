@@ -189,6 +189,28 @@ Run Five-Model Retraining Now
 
 to retrain immediately on a selected dataset version.
 
+## Developer-run manual experiments
+
+Developers do not have to wait for an automatic retraining trigger and do not have to open Google Colab to test a model. The **Experiments & MLflow** page provides an in-app experiment workbench.
+
+A developer can:
+
+1. choose an immutable dataset version
+2. choose Logistic Regression, Random Forest, Extra Trees, LightGBM, or XGBoost
+3. choose the full dataset or an optional deterministic quick sample
+4. tune a small set of model-specific hyperparameters
+5. set the random seed and GPU preference where applicable
+6. run the experiment directly in the application
+7. compare the result with existing registered models
+
+Every manual run is logged to MLflow with its dataset version, hyperparameters, metrics, model artifact, training scope, device, random seed, Git commit, and environment metadata. It is also added to the model registry with **Ready** status. A manual experiment never replaces Production automatically. The developer may later mark that run as Candidate and use the same explicit **Promote Candidate to Production** control used by automated retraining.
+
+Manual run names are readable and timestamped, for example:
+
+```text
+random_forest__manual__20260930T203000Z_a1b2c3
+```
+
 ## MLflow experiment tracking
 
 Each five-model suite creates a named MLflow experiment, for example:
@@ -210,10 +232,13 @@ xgboost__20260930T180000Z
 Each run records information such as:
 
 - dataset version
+- SHA-256 dataset fingerprint
+- deterministic split ID and split date ranges
+- feature-schema version
 - model family
 - training timestamp
 - random seed
-- train / validation / test sizes
+- train / validation / test sizes and cancellation prevalence
 - hyperparameters
 - training device
 - ROC-AUC
@@ -221,7 +246,8 @@ Each run records information such as:
 - Brier score
 - F1, precision, and recall
 - recall at fixed precision
-- estimated business value
+- validation and test business value
+- qualification-gate settings and business-policy assumptions
 - Git commit SHA
 - Python and library versions
 - fitted model artifact
@@ -237,7 +263,9 @@ The workflow first applies qualification gates covering:
 - recall at high precision
 - positive estimated business value
 
-Qualified models are then compared using a weighted technical-and-business score. The best qualified model is registered as **Candidate**.
+Qualified models are then compared using a weighted technical-and-business score. **Qualification and Candidate ranking use the validation split only.** The final temporal test holdout is not used to choose the model; it is reserved for final unbiased reporting after selection. The best qualified model is registered as **Candidate**.
+
+The registry warns when a model failed the qualification gates or predates the validation-only contract. A developer can override that governance check explicitly, but the override is visible in the workflow.
 
 Production remains unchanged until a developer checks the approval box and clicks:
 
@@ -246,6 +274,32 @@ Promote Candidate to Production
 ```
 
 This keeps automated experimentation separate from production deployment.
+
+
+## Final fair five-model benchmark
+
+The repository ships with a report-ready benchmark under:
+
+```text
+artifacts/final_benchmark/benchmark_summary.json
+artifacts/final_benchmark/benchmark_comparison.csv
+```
+
+This benchmark trains Logistic Regression, Random Forest, Extra Trees, LightGBM, and XGBoost on the **same complete 318,135-order dataset**, with the same 70/15/15 temporal split, feature schema, random-seed policy, and business assumptions. Candidate qualification/ranking uses validation evidence only; test metrics are reported only after selection.
+
+Developers can rerun the benchmark from **Experiments & MLflow → Final Benchmark**. A fresh benchmark is tracked in MLflow but does not change Candidate or Production lifecycle state.
+
+Packaged final-test results from the fair benchmark are:
+
+| Model | Validation qualified | Test ROC-AUC | Test PR-AUC | Test Brier | Recall @ 90% precision |
+|---|---:|---:|---:|---:|---:|
+| Logistic Regression | No | 0.869 | 0.965 | 0.138 | 98.25% |
+| Random Forest | Yes | 0.907 | 0.975 | 0.084 | 98.80% |
+| Extra Trees | Yes | 0.893 | 0.970 | 0.096 | 98.49% |
+| LightGBM | Yes | 0.911 | 0.976 | 0.092 | 98.87% |
+| XGBoost | Yes | 0.906 | 0.975 | 0.094 | 98.87% |
+
+The validation-only selection rule chose XGBoost in this formal benchmark. LightGBM remains the packaged Production model until a developer explicitly promotes a different registered Candidate. This separation demonstrates that experiment results do not silently change deployment state.
 
 ## Monitoring and retraining
 
@@ -319,15 +373,20 @@ The application does not require Colab to function. The notebook is an optional 
 Model runs record enough context to trace a result back to its data, code, and configuration:
 
 - immutable dataset version
-- time-based split
+- SHA-256 dataset fingerprint
+- deterministic temporal split ID and date ranges
+- feature-schema version
 - random seed
 - experiment and run names
 - Git commit SHA
 - environment and library versions
 - hyperparameters
 - technical metrics
-- business metrics
+- validation and test business metrics
+- qualification gates and business-policy assumptions
 - serialized model artifact
+
+The final benchmark also stores an explicit reproducibility contract confirming that all five models used the same dataset version, fingerprint, split, feature schema, and business policy.
 
 ## Local setup
 

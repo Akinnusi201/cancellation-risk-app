@@ -112,3 +112,43 @@ Promote Candidate to Production
 ## Optional Colab path
 
 `notebooks/end_to_end_ml_workflow.ipynb` remains available as an accelerated-compute alternative when separate compute or a T4 GPU is useful. The application itself can run the same five-model workflow directly from the Developer workspace.
+
+## Manual experiment path
+
+Developers can run a single tuned model directly from **Experiments & MLflow** without waiting for DataOps, monitoring, or the five-model automatic retraining workflow:
+
+```text
+Versioned dataset
+      ↓
+Choose model + hyperparameters
+      ↓
+Time-based train / validation / test
+      ↓
+Train + evaluate
+      ↓
+MLflow run
+      ↓
+Model Registry: READY
+      ↓
+Optional developer action: mark Candidate
+      ↓
+Separate approval: Promote to Production
+```
+
+This path shares the same feature schema, temporal evaluation, business metrics, reproducibility metadata, and deployment governance as the automated workflow. It never changes Production automatically.
+
+## Final model-selection contract
+
+The formal five-model benchmark and automated retraining workflow use one deterministic temporal split per dataset version:
+
+```text
+full versioned dataset
+        |
+        +--> first 70% by time  -> training
+        +--> next 15% by time   -> validation / threshold tuning / qualification / Candidate selection
+        +--> final 15% by time  -> final unbiased test reporting only
+```
+
+All models in one suite share the same dataset fingerprint, split ID, feature-schema version, random-seed policy, and business assumptions. The test holdout is never used to rank or qualify models. Promotion remains a separate developer-controlled action after reviewing the final test evidence.
+
+The packaged report-ready benchmark is stored in `artifacts/final_benchmark/` and can be regenerated from the Experiments & MLflow page or `scripts/run_final_benchmark.py`.

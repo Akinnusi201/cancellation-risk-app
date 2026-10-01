@@ -6,6 +6,7 @@ from src.auth import require_role
 from src.config import DB_PATH, MLFLOW_TRACKING_URI, ROOT
 from src.database.duckdb_manager import dataframe
 from src.models.registry import PRODUCTION_MODEL_PATH, active_metadata, list_registered_models
+from src.models.benchmark import load_final_benchmark, load_final_benchmark_table
 import src.retraining as retraining
 
 require_role("developer")
@@ -88,6 +89,33 @@ if requests:
         f"Latest retraining request: {latest_request.get('request_id')} · {latest_request.get('status')} · "
         f"{latest_request.get('dataset_version')}"
     )
+
+st.subheader("Final Computational Evidence")
+benchmark = load_final_benchmark()
+benchmark_table = load_final_benchmark_table()
+if benchmark:
+    manifest = benchmark.get("split_manifest", {})
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("Fair Five-Model Benchmark", "Ready")
+    b2.metric("Benchmark Rows", f"{int(benchmark.get('source_rows', 0) or 0):,}")
+    b3.metric("Split ID", manifest.get("split_id", "n/a"))
+    b4.metric("Candidate Selection", "Validation only")
+    st.caption(
+        "All five benchmark models use the same dataset fingerprint, temporal split, feature schema, random-seed policy, and business assumptions. "
+        "The test holdout is reserved for final unbiased evaluation and is not used to choose the Candidate."
+    )
+    if not benchmark_table.empty:
+        st.caption(f"Benchmark includes {len(benchmark_table):,} model families and is available under Experiments & MLflow → Final Benchmark.")
+else:
+    st.warning("The report-ready full-data five-model benchmark has not been generated yet. Run it from Experiments & MLflow → Final Benchmark.")
+
+try:
+    import mlflow  # noqa: F401
+    mlflow_state = "Installed"
+except Exception:
+    mlflow_state = "Dependency missing"
+st.caption(f"MLflow runtime dependency: **{mlflow_state}** · configured backend: `{MLFLOW_TRACKING_URI}`")
+
 
 st.subheader("Recent System Events")
 if len(last_event):

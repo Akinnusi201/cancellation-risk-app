@@ -109,6 +109,7 @@ else:
             "PR-AUC": tm.get("pr_auc"),
             "Brier": tm.get("brier"),
             "Recall @ 90% precision": tm.get("recall_at_90_precision"),
+            "Qualification": "Passed" if model.get("qualification", {}).get("passed") else ("Not evaluated" if not model.get("qualification") else "Needs review"),
             "Est. savings / 1,000": format_usd(bm.get("net_savings_per_1000_orders", 0.0), float(fx["rate"])) if bm.get("net_savings_per_1000_orders") is not None else "n/a",
             "Training": model.get("training_device", "CPU"),
             "Scope": "Full dataset" if model.get("training_scope") in {None, "full_dataset"} else ("Quick sample" if model.get("training_scope") in {"quick_sample", "fast_prototype"} else str(model.get("training_scope"))),
@@ -135,8 +136,26 @@ else:
     )
 
     if selected.get("status") != "PRODUCTION":
-        if st.button("Mark selected model as Candidate", use_container_width=True):
-            set_candidate(selected_id, "Developer selected model from registry")
+        qualification = selected.get("qualification") or {}
+        passed = qualification.get("passed")
+        evidence_split = qualification.get("evidence_split")
+        if passed is True:
+            st.success(f"Qualification gates passed using **{evidence_split or 'validation'}** evidence.")
+            allow_candidate = True
+        elif passed is False:
+            st.warning("This model did not pass the configured qualification gates. You can still nominate it manually, but that is an explicit governance override.")
+            allow_candidate = st.checkbox(
+                "I understand this model failed one or more qualification gates and want to override them.",
+                key=f"override_candidate_{selected_id}",
+            )
+        else:
+            st.info("This packaged starter model predates the validation-only qualification contract. Use the Final Benchmark or retrain it for formal comparison.")
+            allow_candidate = st.checkbox(
+                "Allow this legacy packaged model to be nominated as Candidate.",
+                key=f"legacy_candidate_{selected_id}",
+            )
+        if st.button("Mark selected model as Candidate", use_container_width=True, disabled=not allow_candidate):
+            set_candidate(selected_id, "Developer selected model from registry", qualification)
             st.success(f"{selected.get('display_name')} is now the Candidate. Production has not changed.")
             st.rerun()
 
@@ -154,6 +173,16 @@ else:
         selection = candidate_model.get("selection") or candidate.get("selection") or {}
         if selection:
             st.caption("Candidate selection: qualification gates first, then a weighted comparison of discrimination, calibration, high-precision recall, and business value.")
+        prod_tm = active.get("test_metrics", {})
+        cand_tm = candidate_model.get("test_metrics", {})
+        if prod_tm and cand_tm:
+            st.markdown("#### Candidate vs current Production")
+            comparison = pd.DataFrame([
+                {"Model": "Current Production", "ROC-AUC": prod_tm.get("roc_auc"), "PR-AUC": prod_tm.get("pr_auc"), "Brier": prod_tm.get("brier"), "Recall @ 90% precision": prod_tm.get("recall_at_90_precision")},
+                {"Model": "Candidate", "ROC-AUC": cand_tm.get("roc_auc"), "PR-AUC": cand_tm.get("pr_auc"), "Brier": cand_tm.get("brier"), "Recall @ 90% precision": cand_tm.get("recall_at_90_precision")},
+            ])
+            st.dataframe(comparison, use_container_width=True, hide_index=True)
+            st.caption("These test metrics are for final review only. Automated Candidate selection uses validation evidence, not the test holdout.")
         if candidate_model.get("training_scope") in {"quick_sample", "fast_prototype"}:
             st.warning("This Candidate came from a Quick sampled run. It can be reviewed and promoted, but a Standard full-dataset retraining run is recommended before formal deployment.")
         else:

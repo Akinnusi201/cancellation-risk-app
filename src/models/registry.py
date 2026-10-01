@@ -105,6 +105,59 @@ def load_registered_model(model_id):
     return _load_pickle(str(artifact), stat.st_mtime_ns), meta
 
 
+
+
+def register_experiment_model(record, source_dir=None):
+    """Register a manually trained experiment model as READY without deploying it.
+
+    The source directory may contain support artifacts used later if the developer
+    promotes this run to Production. Existing Production/Candidate statuses are preserved.
+    """
+    model_id = str(record.get("model_id") or "").strip()
+    if not model_id:
+        raise ValueError("Experiment record must contain model_id.")
+
+    src_dir = Path(source_dir) if source_dir else Path(record.get("model_artifact", "")).parent
+    src_model = Path(record.get("model_artifact", ""))
+    if not src_model.is_absolute():
+        src_model = (ARTIFACT_DIR.parent / src_model).resolve()
+    if not src_model.exists():
+        candidate = src_dir / "model.pkl"
+        if candidate.exists():
+            src_model = candidate
+        else:
+            raise FileNotFoundError(f"Experiment model artifact not found: {src_model}")
+
+    out = MODEL_REGISTRY_DIR / model_id
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src_model, out / "model.pkl")
+
+    for filename in [
+        "test_predictions.csv.gz",
+        "reference_orders.csv.gz",
+        "demo_orders.csv.gz",
+        "historical_demo_orders.csv.gz",
+    ]:
+        src = src_dir / filename
+        if src.exists():
+            shutil.copy2(src, out / filename)
+
+    meta = dict(record)
+    meta["status"] = "READY"
+    meta["model_artifact"] = str((out / "model.pkl").relative_to(ARTIFACT_DIR.parent))
+    meta["registered_at"] = datetime.now(timezone.utc).isoformat()
+    (out / "metadata.json").write_text(json.dumps(meta, indent=2, default=str))
+
+    registry = load_model_registry()
+    models = [m for m in registry.get("models", []) if m.get("model_id") != model_id]
+    models.append(meta)
+    registry["models"] = models
+    save_model_registry(registry)
+    _load_pickle.cache_clear()
+    return meta
+
 def candidate_metadata():
     return json.loads(CANDIDATE_STATE_PATH.read_text()) if CANDIDATE_STATE_PATH.exists() else None
 
@@ -234,7 +287,14 @@ def promote_registered_model(model_id):
         "threshold": meta.get("threshold", 0.5),
         "val_metrics": meta.get("val_metrics", {}),
         "test_metrics": meta.get("test_metrics", {}),
+        "val_business_metrics": meta.get("val_business_metrics", {}),
+        "test_business_metrics": meta.get("test_business_metrics", meta.get("business_metrics", {})),
         "business_metrics": meta.get("business_metrics", {}),
+        "qualification": meta.get("qualification", {}),
+        "dataset_fingerprint": meta.get("dataset_fingerprint"),
+        "split_id": meta.get("split_id"),
+        "split_manifest": meta.get("split_manifest", {}),
+        "feature_schema_version": meta.get("feature_schema_version"),
         "source": "model_registry_promotion",
         "promoted_at": datetime.now(timezone.utc).isoformat(),
         "training_device": meta.get("training_device"),

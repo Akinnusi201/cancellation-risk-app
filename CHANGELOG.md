@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.3 - In-app tuned MLflow experiments
+
+- Restored a hands-on Developer experiment workbench inside Streamlit.
+- Developers can select any versioned dataset and train Logistic Regression, Random Forest, Extra Trees, LightGBM, or XGBoost without opening Colab.
+- Added model-specific hyperparameter controls, full-dataset or quick-sample scope, random-seed control, and GPU preference for supported models.
+- Every manual run logs parameters, metrics, business metrics, reproducibility metadata, and the fitted model to MLflow when the configured tracking store is available.
+- Manual experiment artifacts are registered as Ready models and can be compared with packaged, automated, Candidate, and Production models.
+- Manual experiments never change Candidate or Production automatically; developers may explicitly mark a run Candidate and promote it through the existing approval workflow.
+
+
 ## v4.2 - Full application workflow with optional demo mode
 
 - Made full-dataset retraining the default operating mode.
@@ -167,3 +177,15 @@
 - Converted Operations and Business Impact monetary displays to U.S. dollars.
 - Manual and batch scoring now accept USD monetary inputs and convert them back to PKR internally because the production model was trained on PKR-denominated historical data.
 - Added hourly FX caching, source/date disclosure, USD batch exports, and currency regression tests.
+
+## v4.4 - Final computational hardening
+
+- Added a report-ready full-data five-model benchmark on the same 318,135-order dataset and deterministic 70/15/15 temporal split.
+- Candidate qualification and ranking now use validation evidence only; the final temporal test holdout is reserved for unbiased reporting.
+- Added dataset SHA-256 fingerprint, deterministic split ID, split date ranges, feature-schema version, business-policy assumptions, and qualification-gate metadata to model runs.
+- MLflow logging now separates validation business metrics from final test business metrics.
+- Added a Final Benchmark workbench in Experiments & MLflow and benchmark evidence in Model Monitoring/System Status.
+- Reduced default Random Forest/Extra Trees computational budgets so a full five-model run is practical on CPU while still using the complete dataset.
+- Added explicit governance overrides for models that fail qualification gates or predate the validation-only selection contract.
+- Candidate promotion metadata now carries split/fingerprint/schema and validation/test business evidence.
+- Added regression tests proving Candidate selection does not use the final test holdout.
