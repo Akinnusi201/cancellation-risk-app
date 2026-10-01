@@ -14,61 +14,109 @@ def _sign_in_as(role: str) -> None:
 
 
 def login_screen() -> None:
-    """Passwordless role-selection landing page for this deployment."""
+    """Passwordless role-selection landing page for this course deployment."""
     st.markdown(
         """
         <div class="cr-login-wrap">
           <div class="cr-login-hero">
             <div class="cr-login-mark">↗</div>
             <h1>Profit-Aware Cancellation Risk</h1>
-            <p>Profit-aware order cancellation risk for e-commerce operations. Choose a workspace to enter the system.</p>
+            <p>Turn cancellation risk into an operational decision: release the order, or verify it before fulfillment.</p>
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    left, right = st.columns(2, gap="large")
+    # Keep role cards intentionally compact on wide screens. Streamlit's main
+    # container can be very wide, so a centered inner column prevents the cards
+    # and descriptions from looking stretched.
+    _, center, _ = st.columns([0.65, 10, 0.65])
+    with center:
+        left, right = st.columns(2, gap="medium")
 
-    with left:
-        st.markdown(
-            """
-            <div class="cr-role-card">
-              <div class="cr-role-icon">📦</div>
-              <h3>Operations Manager</h3>
-              <p>Review incoming orders, see cancellation risk and expected value, then release orders or keep them for verification.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button(
-            "📦  Enter Operations Workspace",
-            type="primary",
-            use_container_width=True,
-            key="login_manager",
-        ):
-            _sign_in_as("manager")
+        with left:
+            st.markdown(
+                """
+                <div class="cr-role-card">
+                  <div class="cr-role-top">
+                    <div class="cr-role-icon">📦</div>
+                    <h3>Operations Manager</h3>
+                  </div>
+                  <p>Review incoming orders, see cancellation risk and expected dollar impact, then release the order or keep it for verification.</p>
+                  <div class="cr-role-meta">
+                    <span class="cr-mini-pill">Order review</span>
+                    <span class="cr-mini-pill">Business impact</span>
+                    <span class="cr-mini-pill">Decision history</span>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                "📦  Enter Operations Workspace",
+                type="primary",
+                use_container_width=True,
+                key="login_manager",
+            ):
+                _sign_in_as("manager")
 
-    with right:
-        st.markdown(
-            """
-            <div class="cr-role-card">
-              <div class="cr-role-icon">🛠️</div>
-              <h3>Developer</h3>
-              <p>Manage DataOps, run MLflow experiments, compare models, monitor production health, retrain, and control deployment.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button(
-            "🛠️  Enter Developer Workspace",
-            use_container_width=True,
-            key="login_developer",
-        ):
-            _sign_in_as("developer")
+        with right:
+            st.markdown(
+                """
+                <div class="cr-role-card">
+                  <div class="cr-role-top">
+                    <div class="cr-role-icon">🛠️</div>
+                    <h3>Developer</h3>
+                  </div>
+                  <p>Manage DataOps, run tracked MLflow experiments, compare models, monitor production health, retrain, and control deployment.</p>
+                  <div class="cr-role-meta">
+                    <span class="cr-mini-pill">DataOps</span>
+                    <span class="cr-mini-pill">MLflow + ModelOps</span>
+                    <span class="cr-mini-pill">Monitoring</span>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                "🛠️  Enter Developer Workspace",
+                use_container_width=True,
+                key="login_developer",
+            ):
+                _sign_in_as("developer")
 
     st.markdown(
-        '<div class="cr-login-note">Course deployment · Passwordless role selection · Workspaces are still isolated by role-specific navigation and page guards.</div>',
+        """
+        <div class="cr-about">
+          <div class="cr-about-head">
+            <div class="cr-about-icon">ℹ️</div>
+            <div>
+              <h3>About this tool</h3>
+              <p class="cr-about-intro">Developed by <strong>Group 10</strong> for <strong>BANA 7075 · Machine Learning Design for Business</strong>. The project demonstrates a complete ML system for e-commerce cancellation risk, with separate operational and developer workflows.</p>
+            </div>
+          </div>
+          <div class="cr-about-grid">
+            <div class="cr-about-card">
+              <strong>📊 Business purpose</strong>
+              <span>Estimate cancellation risk and use expected economic value to decide whether an order is worth verifying before fulfillment.</span>
+            </div>
+            <div class="cr-about-card">
+              <strong>🔁 End-to-end ML lifecycle</strong>
+              <span>Data ingestion, validation, versioning, five-model experimentation, MLflow tracking, governed deployment, monitoring, and retraining.</span>
+            </div>
+            <div class="cr-about-card">
+              <strong>🧪 Course deployment</strong>
+              <span>Passwordless role selection keeps the demo easy to access. Role-specific navigation and page guards still isolate Operations from Developer tools.</span>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="cr-login-note">Group 10 · Profit-Aware E-Commerce Order Cancellation Risk · Educational deployment</div>',
         unsafe_allow_html=True,
     )
 
@@ -102,7 +150,5 @@ def require_role(role: str) -> None:
         st.switch_page("app.py")
 
     if st.session_state.get("role") != role:
-        # A page file may still be invoked during development or from stale browser
-        # history. Never render protected content for the wrong role.
         st.warning("That page is not available in your current workspace.")
         st.stop()

@@ -195,3 +195,9 @@
 - Made the five-model training suite compatible with pre-v4.4 `src/config.py` files that do not define `FEATURE_SCHEMA_VERSION`.
 - The suite now falls back to `order_features_v1` during partial/rolling deployments instead of crashing the MLflow Experiments page at import time.
 - Added regression coverage for the compatibility contract.
+
+## UI polish
+- Improved primary-action contrast with bold white labels on accent buttons.
+- Added a professor-friendly About section to the landing page.
+- Tightened role-card proportions and centered the landing-page workspace selector.
+- Added compact capability chips and improved focus/hover/accessibility states.

@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="auto",
     menu_items={
-        "About": "Cancellation Risk ML · Profit-aware e-commerce cancellation risk · Group 10",
+        "About": "Profit-Aware Cancellation Risk · Group 10 · BANA 7075 Machine Learning Design for Business",
     },
 )
 
