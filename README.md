@@ -590,7 +590,6 @@ notebooks/end_to_end_ml_workflow.ipynb
 
 It can be used when separate compute or a Tesla T4 is useful. LightGBM and XGBoost can benefit from compatible GPU configurations, while scikit-learn Random Forest and Extra Trees remain CPU-based.
 
-A model produced by the notebook can be exported as a Candidate package and imported into the same registry and deployment workflow.
 
 ---
 
